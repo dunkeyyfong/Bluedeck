@@ -63,7 +63,7 @@ typedef NS_ENUM(NSInteger, BDSettingsSection) {
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
 	switch (section) {
 		case BDSettingsSectionMix: return BDPrefsStore.shared.mixEnabled ? 2 : 1;
-		case BDSettingsSectionAbout: return 2;
+		case BDSettingsSectionAbout: return 3;
 		default: return 1;
 	}
 }
@@ -130,10 +130,15 @@ typedef NS_ENUM(NSInteger, BDSettingsSection) {
 				content.text = @"Phiên bản";
 				content.secondaryText = BDAppVersion();
 				symbol = @"info.circle.fill";
-			} else {
+			} else if (indexPath.row == 1) {
 				content.text = @"BluedeckHelper";
 				content.secondaryText = self.helperState;
 				symbol = @"gearshape.2.fill";
+				color = UIColor.systemGrayColor;
+			} else {
+				content.text = @"BluedeckSystem";
+				content.secondaryText = BDGetState(kBDSystemAliveState) == 1 ? @"Đang chạy" : @"Không chạy — respring";
+				symbol = @"cpu";
 				color = UIColor.systemGrayColor;
 			}
 			cell.selectionStyle = UITableViewCellSelectionStyleNone;

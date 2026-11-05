@@ -6,11 +6,24 @@
 @property (nonatomic, copy) NSSet<NSString *> *publishedApps;
 @end
 
-static void BDSetState(const char *name, uint64_t state) {
+// notifyd drops a name's state once nobody is registered for it, so registrations used to
+// publish (or to keep an app's report around) stay open while Bluedeck runs.
+static int BDHoldToken(const char *name) {
+	static NSMutableDictionary<NSString *, NSNumber *> *tokens;
+	static dispatch_once_t once;
+	dispatch_once(&once, ^{ tokens = [NSMutableDictionary dictionary]; });
+	NSString *key = @(name);
+	NSNumber *existing = tokens[key];
+	if (existing) return existing.intValue;
 	int token = 0;
-	if (notify_register_check(name, &token) != NOTIFY_STATUS_OK) return;
-	notify_set_state(token, state);
-	notify_cancel(token);
+	if (notify_register_check(name, &token) != NOTIFY_STATUS_OK) return -1;
+	tokens[key] = @(token);
+	return token;
+}
+
+static void BDSetState(const char *name, uint64_t state) {
+	int token = BDHoldToken(name);
+	if (token >= 0) notify_set_state(token, state);
 }
 
 uint64_t BDGetState(const char *name) {
@@ -50,7 +63,10 @@ uint64_t BDGetState(const char *name) {
 - (void)publishMixState {
 	BDSetState(kBDMixEnabledState, self.mixEnabled ? 1 : 0);
 	NSSet *apps = [NSSet setWithArray:self.mixApps];
-	for (NSString *bundleID in apps) BDSetState(BDMixAppStateName(bundleID).UTF8String, 1);
+	for (NSString *bundleID in apps) {
+		BDSetState(BDMixAppStateName(bundleID).UTF8String, 1);
+		BDHoldToken(BDMixStatusStateName(bundleID).UTF8String);
+	}
 	for (NSString *bundleID in self.publishedApps) {
 		if (![apps containsObject:bundleID]) BDSetState(BDMixAppStateName(bundleID).UTF8String, 0);
 	}

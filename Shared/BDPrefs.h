@@ -5,6 +5,8 @@
 
 #define kBDPrefsPath @"/var/mobile/Library/Preferences/com.pgong.bluedeck.plist"
 #define kBDPrefsChanged "com.pgong.bluedeck/prefs-changed"
+// Held at 1 by BluedeckSystem in SpringBoard for as long as it runs.
+#define kBDSystemAliveState "com.pgong.bluedeck.system/alive"
 
 // Keep music playing when another app plays video.
 #define kBDPrefMixEnabled @"mixEnabled"   // BOOL

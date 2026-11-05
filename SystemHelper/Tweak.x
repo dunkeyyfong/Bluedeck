@@ -10,11 +10,26 @@ uint64_t BDNotifyGetState(const char *name) {
 	return state;
 }
 
+// notifyd drops a name's state as soon as nobody is registered for it, so whoever sets a
+// state keeps its registration for the life of the process.
+int BDNotifyHoldToken(const char *name) {
+	static NSMutableDictionary<NSString *, NSNumber *> *tokens;
+	static dispatch_once_t once;
+	dispatch_once(&once, ^{ tokens = [NSMutableDictionary dictionary]; });
+	NSString *key = @(name);
+	@synchronized (tokens) {
+		NSNumber *existing = tokens[key];
+		if (existing) return existing.intValue;
+		int token = 0;
+		if (notify_register_check(name, &token) != NOTIFY_STATUS_OK) return -1;
+		tokens[key] = @(token);
+		return token;
+	}
+}
+
 void BDNotifySetState(const char *name, uint64_t state) {
-	int token = 0;
-	if (notify_register_check(name, &token) != NOTIFY_STATUS_OK) return;
-	notify_set_state(token, state);
-	notify_cancel(token);
+	int token = BDNotifyHoldToken(name);
+	if (token >= 0) notify_set_state(token, state);
 }
 
 %ctor {

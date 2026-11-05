@@ -31,7 +31,11 @@ static void BDSPublish(void) {
 	NSDictionary *prefs = BDSPrefs();
 	BDNotifySetState(kBDMixEnabledState, [prefs[kBDPrefMixEnabled] boolValue] ? 1 : 0);
 	NSSet *apps = [NSSet setWithArray:prefs[kBDPrefMixApps] ?: @[]];
-	for (NSString *bundleID in apps) BDNotifySetState(BDMixAppStateName(bundleID).UTF8String, 1);
+	for (NSString *bundleID in apps) {
+		BDNotifySetState(BDMixAppStateName(bundleID).UTF8String, 1);
+		// Hold the status name too, so what the app reports survives after it quits.
+		BDNotifyHoldToken(BDMixStatusStateName(bundleID).UTF8String);
+	}
 	for (NSString *bundleID in gPublishedApps) {
 		if (![apps containsObject:bundleID]) BDNotifySetState(BDMixAppStateName(bundleID).UTF8String, 0);
 	}
@@ -51,6 +55,7 @@ static void BDSEnforce(BluetoothDevice *device) {
 }
 
 void BDSpringBoardStart(void) {
+	BDNotifySetState(kBDSystemAliveState, 1);
 	BDSPublish();
 	int token = 0;
 	notify_register_dispatch(kBDPrefsChanged, &token, dispatch_get_main_queue(), ^(int t) {
