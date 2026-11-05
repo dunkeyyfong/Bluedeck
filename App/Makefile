@@ -6,7 +6,7 @@ include $(THEOS)/makefiles/common.mk
 APPLICATION_NAME = Bluedeck
 
 Bluedeck_FILES = $(wildcard *.m)
-Bluedeck_FRAMEWORKS = UIKit CoreGraphics AVFoundation CoreBluetooth
+Bluedeck_FRAMEWORKS = UIKit CoreGraphics AVFoundation CoreBluetooth PhotosUI
 Bluedeck_CFLAGS = -fobjc-arc -Wno-deprecated-declarations
 Bluedeck_CODESIGN_FLAGS = -Sentitlements.plist
 
