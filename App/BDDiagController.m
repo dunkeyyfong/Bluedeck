@@ -1,4 +1,5 @@
 #import "BDDiagController.h"
+#import "BDCodeDump.h"
 #import "BDDump.h"
 #import "BDEntitlements.h"
 #import "BDExports.h"
@@ -10,7 +11,7 @@
 #import <objc/message.h>
 #import <sys/utsname.h>
 
-#define kBDVersion @"0.1.5"
+#define kBDVersion @"0.1.6"
 
 static NSArray<NSString *> *BDManagerGetters(void) {
 	return @[@"available", @"enabled", @"powered", @"powerState", @"bluetoothState", @"localAddress",
@@ -218,7 +219,7 @@ static NSArray<NSString *> *BDInspectedClasses(void) {
 	if (!self.started) return;
 	NSMutableArray *sections = [NSMutableArray array];
 	NSArray *builders = @[@"overviewSection", @"deviceSections", @"batterySection", @"routesSection",
-		@"audioSessionSection", @"bleSection", @"entitlementsSection", @"methodsSection", @"cSymbolsSection", @"eventsSection"];
+		@"audioSessionSection", @"bleSection", @"entitlementsSection", @"codeSection", @"methodsSection", @"cSymbolsSection", @"eventsSection"];
 	for (NSString *builder in builders) {
 		__block id result = nil;
 		NSException *e = BDStep([@"dựng " stringByAppendingString:builder], ^{
@@ -464,6 +465,33 @@ static NSArray<NSString *> *BDInspectedClasses(void) {
 		BDSection *list = [BDSection title:@"/usr/sbin/bluetoothd"];
 		for (NSString *str in strings) [list add:str value:nil];
 		row.detail = @[list];
+	}
+	return s;
+}
+
+// Machine code of the BluetoothManager calls that bluetoothd silently ignores for Bluedeck.
+- (BDSection *)codeSection {
+	static BDSection *cached;
+	if (cached) return cached;
+	BDSection *s = [BDSection title:@"Mã máy (BluetoothManager)"];
+	cached = s;
+	NSArray *targets = @[
+		@[@"BluetoothManager", @"unpairDevice:"],
+		@[@"BluetoothDevice", @"unpair"],
+		@[@"BluetoothManager", @"setDevicePairingEnabled:"],
+		@[@"BluetoothManager", @"setDeviceScanningEnabled:"],
+		@[@"BluetoothManager", @"scanForServices:"],
+		@[@"BluetoothManager", @"_scanForServices:withMode:"],
+		@[@"BluetoothManager", @"setPowered:"],
+		@[@"BluetoothManager", @"setEnabled:"],
+	];
+	for (NSArray *t in targets) {
+		Class cls = NSClassFromString(t[0]);
+		NSArray *lines = cls ? BDDumpMethodCode(cls, NSSelectorFromString(t[1]), NO, 0x200) : @[@"(không có class)"];
+		BDRow *row = [s add:[NSString stringWithFormat:@"-[%@ %@]", t[0], t[1]] value:lines.firstObject];
+		BDSection *detail = [BDSection title:t[1]];
+		for (NSString *line in lines) [detail add:line value:nil];
+		row.detail = @[detail];
 	}
 	return s;
 }

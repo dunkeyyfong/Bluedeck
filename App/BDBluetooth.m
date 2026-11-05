@@ -46,9 +46,23 @@ NSString *const BDBluetoothForgetFailedNotification = @"BDBluetoothForgetFailedN
 		}
 		[NSNotificationCenter.defaultCenter addObserver:self selector:@selector(bluetoothNotification:) name:nil object:nil];
 		[NSNotificationCenter.defaultCenter addObserver:self selector:@selector(audioRouteChanged:) name:@"AVAudioSessionRouteChangeNotification" object:nil];
+		// Settings keeps the pairing agent up while its Bluetooth page is visible; unpair and
+		// pairing requests appear to be dropped without it. Mirror that while we're foreground.
+		[NSNotificationCenter.defaultCenter addObserver:self selector:@selector(enterForeground) name:UIApplicationDidBecomeActiveNotification object:nil];
+		[NSNotificationCenter.defaultCenter addObserver:self selector:@selector(enterBackground) name:UIApplicationDidEnterBackgroundNotification object:nil];
+		[self enterForeground];
 		[self refreshRoutes];
 	}
 	return self;
+}
+
+- (void)enterForeground {
+	if ([self.manager respondsToSelector:@selector(setDevicePairingEnabled:)]) [self.manager setDevicePairingEnabled:YES];
+}
+
+- (void)enterBackground {
+	if (self.scanning) [self stopScan];
+	if ([self.manager respondsToSelector:@selector(setDevicePairingEnabled:)]) [self.manager setDevicePairingEnabled:NO];
 }
 
 #pragma mark - Change tracking
@@ -205,7 +219,8 @@ NSString *const BDBluetoothForgetFailedNotification = @"BDBluetoothForgetFailedN
 	// Settings drops the link before unpairing; unpairing a live connection can be ignored.
 	BOOL wasConnected = device.connected;
 	if (wasConnected) [self disconnect:device];
-	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)((wasConnected ? 1.5 : 0) * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+	[self enterForeground];
+	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)((wasConnected ? 1.5 : 0.3) * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
 		if ([device respondsToSelector:@selector(unpair)]) [device unpair];
 		if ([self.manager respondsToSelector:@selector(unpairDevice:)]) [self.manager unpairDevice:device];
 		[self scheduleChange];
@@ -234,15 +249,14 @@ NSString *const BDBluetoothForgetFailedNotification = @"BDBluetoothForgetFailedN
 }
 
 - (void)beginDiscovery {
+	// Same calls as Settings' Bluetooth page: pairing agent on, then plain device scanning.
+	// (scanForServices: switches bluetoothd to a service-filtered scan that never reported devices.)
 	if ([self.manager respondsToSelector:@selector(setDevicePairingEnabled:)]) [self.manager setDevicePairingEnabled:YES];
 	if ([self.manager respondsToSelector:@selector(setDeviceScanningEnabled:)]) [self.manager setDeviceScanningEnabled:YES];
-	// Scanning alone only arms discovery; asking for all services is what makes bluetoothd inquire.
-	if ([self.manager respondsToSelector:@selector(scanForServices:)]) [self.manager scanForServices:0xFFFFFFFF];
 }
 
 - (void)stopScan {
 	if ([self.manager respondsToSelector:@selector(setDeviceScanningEnabled:)]) [self.manager setDeviceScanningEnabled:NO];
-	if ([self.manager respondsToSelector:@selector(setDevicePairingEnabled:)]) [self.manager setDevicePairingEnabled:NO];
 	self.scanning = NO;
 	[self scheduleChange];
 }
