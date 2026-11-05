@@ -4,6 +4,7 @@
 
 NSString *const BDBluetoothDidChangeNotification = @"BDBluetoothDidChangeNotification";
 NSString *const BDBluetoothPairingRequestNotification = @"BDBluetoothPairingRequestNotification";
+NSString *const BDBluetoothForgetFailedNotification = @"BDBluetoothForgetFailedNotification";
 
 @interface BDBluetooth ()
 @property (nonatomic, strong) BluetoothManager *manager;
@@ -15,6 +16,8 @@ NSString *const BDBluetoothPairingRequestNotification = @"BDBluetoothPairingRequ
 @property (nonatomic, strong) NSDate *pendingPlayStarted;
 @property (nonatomic, strong) NSDate *pendingPlayDeadline;
 @property (nonatomic, assign) BOOL pendingPlayDidFallback;
+@property (nonatomic, readwrite) NSInteger discoveryHits;
+@property (nonatomic, strong) NSMutableArray<NSString *> *recentEvents;
 @end
 
 @implementation BDBluetooth
@@ -31,6 +34,7 @@ NSString *const BDBluetoothPairingRequestNotification = @"BDBluetoothPairingRequ
 		dlopen("/System/Library/PrivateFrameworks/BluetoothManager.framework/BluetoothManager", RTLD_NOW);
 		dlopen("/System/Library/Frameworks/MediaPlayer.framework/MediaPlayer", RTLD_NOW);
 		_discovered = [NSMutableDictionary dictionary];
+		_recentEvents = [NSMutableArray array];
 		Class managerClass = NSClassFromString(@"BluetoothManager");
 		if ([managerClass respondsToSelector:@selector(sharedInstance)]) _manager = [managerClass sharedInstance];
 
@@ -54,9 +58,20 @@ NSString *const BDBluetoothPairingRequestNotification = @"BDBluetoothPairingRequ
 	if (![name hasPrefix:@"Bluetooth"]) return;
 	dispatch_async(dispatch_get_main_queue(), ^{
 		id obj = note.object;
-		if ([name containsString:@"Discovered"] && [obj respondsToSelector:@selector(address)]) {
-			BluetoothDevice *device = obj;
-			if (device.address && !device.paired) self.discovered[device.address] = device;
+		BluetoothDevice *noteDevice = [self deviceInObject:obj];
+		NSDateFormatter *fmt = [NSDateFormatter new];
+		fmt.dateFormat = @"HH:mm:ss";
+		NSString *shortName = [[name stringByReplacingOccurrencesOfString:@"Bluetooth" withString:@""]
+			stringByReplacingOccurrencesOfString:@"Notification" withString:@""];
+		[self.recentEvents insertObject:[NSString stringWithFormat:@"%@ %@%@", [fmt stringFromDate:NSDate.date], shortName,
+			noteDevice.name ? [@" · " stringByAppendingString:noteDevice.name] : @""] atIndex:0];
+		if (self.recentEvents.count > 40) [self.recentEvents removeLastObject];
+
+		// Any device-carrying discovery event counts, paired or not (a paired speaker put back
+		// into pairing mode is still a valid hit).
+		if ([name containsString:@"Discover"] && noteDevice.address) {
+			self.discoveryHits++;
+			self.discovered[noteDevice.address] = noteDevice;
 		}
 		// bluetoothd ends discovery after a few seconds; keep it going while the scan screen is open.
 		if ([name isEqualToString:@"BluetoothDiscoveryStoppedNotification"] && self.scanning) {
@@ -146,11 +161,9 @@ NSString *const BDBluetoothPairingRequestNotification = @"BDBluetoothPairingRequ
 }
 
 - (NSArray<BluetoothDevice *> *)discoveredDevices {
-	NSMutableArray *list = [NSMutableArray array];
-	for (BluetoothDevice *device in self.discovered.allValues) {
-		if (!device.paired) [list addObject:device];
-	}
-	return [list sortedArrayUsingComparator:^NSComparisonResult(BluetoothDevice *a, BluetoothDevice *b) {
+	// New devices first, then ones already paired (shown so the user sees discovery works).
+	return [self.discovered.allValues sortedArrayUsingComparator:^NSComparisonResult(BluetoothDevice *a, BluetoothDevice *b) {
+		if (a.paired != b.paired) return a.paired ? NSOrderedDescending : NSOrderedAscending;
 		return [a.name ?: @"" localizedCaseInsensitiveCompare:b.name ?: @""];
 	}];
 }
@@ -185,13 +198,34 @@ NSString *const BDBluetoothPairingRequestNotification = @"BDBluetoothPairingRequ
 }
 
 - (void)forget:(BluetoothDevice *)device {
-	if ([self.manager respondsToSelector:@selector(unpairDevice:)]) [self.manager unpairDevice:device];
-	else [device unpair];
-	[self scheduleChange];
+	NSString *address = device.address;
+	NSString *name = device.name;
+	// Settings drops the link before unpairing; unpairing a live connection can be ignored.
+	BOOL wasConnected = device.connected;
+	if (wasConnected) [self disconnect:device];
+	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)((wasConnected ? 1.5 : 0) * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+		if ([device respondsToSelector:@selector(unpair)]) [device unpair];
+		if ([self.manager respondsToSelector:@selector(unpairDevice:)]) [self.manager unpairDevice:device];
+		[self scheduleChange];
+		dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+			for (BluetoothDevice *d in self.pairedDevices) {
+				if (![d.address isEqualToString:address]) continue;
+				[NSNotificationCenter.defaultCenter postNotificationName:BDBluetoothForgetFailedNotification object:self
+					userInfo:@{@"name": name ?: address ?: @"?", @"events": [self.recentEvents componentsJoinedByString:@"\n"]}];
+				return;
+			}
+			[self scheduleChange];
+		});
+	});
+}
+
+- (NSArray<NSString *> *)recentEventLines {
+	return [self.recentEvents copy];
 }
 
 - (void)startScan {
 	[self.discovered removeAllObjects];
+	self.discoveryHits = 0;
 	self.scanning = YES;
 	[self beginDiscovery];
 	[self scheduleChange];

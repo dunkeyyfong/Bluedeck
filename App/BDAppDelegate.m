@@ -9,6 +9,7 @@
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
 	[BDBluetooth shared];
 	[NSNotificationCenter.defaultCenter addObserver:self selector:@selector(pairingRequest:) name:BDBluetoothPairingRequestNotification object:nil];
+	[NSNotificationCenter.defaultCenter addObserver:self selector:@selector(forgetFailed:) name:BDBluetoothForgetFailedNotification object:nil];
 
 	BDDiagController *diag = [BDDiagController new];
 	diag.tabBarItem = [[UITabBarItem alloc] initWithTitle:@"Chẩn đoán" image:[UIImage systemImageNamed:@"stethoscope"] tag:2];
@@ -34,6 +35,17 @@
 	UIViewController *top = self.window.rootViewController;
 	while (top.presentedViewController) top = top.presentedViewController;
 	return top;
+}
+
+- (void)forgetFailed:(NSNotification *)note {
+	NSString *message = [NSString stringWithFormat:@"iOS vẫn giữ “%@” trong danh sách ghép đôi. Mở Cài đặt › Bluetooth xem thiết bị còn ở đó không.\n\nSự kiện gần nhất:\n%@",
+		note.userInfo[@"name"], note.userInfo[@"events"] ?: @"(không có)"];
+	UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Chưa quên được thiết bị" message:message preferredStyle:UIAlertControllerStyleAlert];
+	[alert addAction:[UIAlertAction actionWithTitle:@"Sao chép" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+		UIPasteboard.generalPasteboard.string = message;
+	}]];
+	[alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleCancel handler:nil]];
+	[[self topController] presentViewController:alert animated:YES completion:nil];
 }
 
 // bluetoothd wants a PIN or a confirmation while pairing.

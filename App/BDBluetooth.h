@@ -5,6 +5,8 @@
 extern NSString *const BDBluetoothDidChangeNotification;
 // Posted when bluetoothd asks for pairing input. userInfo: @"name", @"device" (maybe), @"info".
 extern NSString *const BDBluetoothPairingRequestNotification;
+// Posted when a device is still paired 3 s after -forget:. userInfo: @"name", @"events".
+extern NSString *const BDBluetoothForgetFailedNotification;
 
 // Service bits of -[BluetoothDevice isServiceSupported:] / connectedServices.
 // 0x1/0x8/0x10/0x2000 matched against real devices in the P0 report; the rest are best guesses.
@@ -28,6 +30,8 @@ typedef NS_OPTIONS(unsigned int, BDService) {
 @property (nonatomic, readonly) NSArray<BluetoothDevice *> *pairedDevices;     // connected first, then by name
 @property (nonatomic, readonly) NSArray<BluetoothDevice *> *discoveredDevices; // not paired yet
 @property (nonatomic, readonly) BOOL scanning;
+@property (nonatomic, readonly) NSInteger discoveryHits;            // discovery events since startScan
+@property (nonatomic, readonly) NSArray<NSString *> *recentEventLines; // newest first, for on-screen debugging
 @property (nonatomic, readonly) NSArray<MPAVRoute *> *routes;
 
 - (void)setPowered:(BOOL)powered;

@@ -60,8 +60,19 @@
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
-	return @"Bật chế độ ghép đôi trên thiết bị (thường là giữ nút Bluetooth hoặc nút nguồn đến khi đèn nháy). "
-		@"Tai nghe/loa đời cũ có thể hỏi mã PIN — thường là 0000.";
+	BDBluetooth *bt = BDBluetooth.shared;
+	NSMutableString *text = [NSMutableString stringWithString:
+		@"Bật chế độ ghép đôi trên thiết bị (thường là giữ nút Bluetooth hoặc nút nguồn đến khi đèn nháy). "
+		@"Tai nghe/loa đời cũ có thể hỏi mã PIN — thường là 0000."];
+	[text appendFormat:@"\n\nĐã nhận %ld tín hiệu phát hiện.", (long)bt.discoveryHits];
+	NSArray *events = bt.recentEventLines;
+	if (events.count) {
+		[text appendString:@"\nSự kiện gần nhất:"];
+		for (NSString *line in [events subarrayWithRange:NSMakeRange(0, MIN(events.count, (NSUInteger)6))]) {
+			[text appendFormat:@"\n%@", line];
+		}
+	}
+	return text;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -89,6 +100,10 @@
 
 - (void)pair:(BluetoothDevice *)device {
 	if (!device.address) return;
+	if (device.paired) {
+		[BDBluetooth.shared connect:device];
+		return;
+	}
 	[self.pairing addObject:device.address];
 	[BDBluetooth.shared pair:device];
 }

@@ -66,6 +66,7 @@
 	BOOL connecting = [bt isConnecting:device] || [bt isWaitingToPlayOn:device];
 	NSMutableArray *status = [NSMutableArray arrayWithObject:kind.name];
 	if (mode == BDDeviceCellModeDiscovered) {
+		if (device.paired) [status addObject:device.connected ? @"Đã kết nối" : @"Đã ghép đôi"];
 		[status addObject:device.address ?: @""];
 	} else if (connecting) {
 		[status addObject:@"Đang kết nối…"];
@@ -87,7 +88,7 @@
 			config.baseForegroundColor = device.connected ? UIColor.systemRedColor : nil;
 			break;
 		case BDDeviceCellModeDiscovered:
-			config.title = @"Ghép đôi";
+			config.title = device.paired ? (device.connected ? @"Đã nối" : @"Kết nối") : @"Ghép đôi";
 			break;
 		case BDDeviceCellModePlayHere:
 			config.title = @"Phát ra đây";
