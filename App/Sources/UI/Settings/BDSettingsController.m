@@ -18,7 +18,6 @@ typedef NS_ENUM(NSInteger, BDSettingsSection) {
 
 @interface BDSettingsController ()
 @property (nonatomic, copy) NSString *helperState;
-@property (nonatomic, strong) UISwitch *mixSwitch;
 @end
 
 @implementation BDSettingsController
@@ -28,8 +27,6 @@ typedef NS_ENUM(NSInteger, BDSettingsSection) {
 		self.title = @"Cài đặt";
 		self.navigationItem.largeTitleDisplayMode = UINavigationItemLargeTitleDisplayModeNever;
 		_helperState = @"Đang kiểm tra…";
-		_mixSwitch = [UISwitch new];
-		[_mixSwitch addTarget:self action:@selector(mixToggled:) forControlEvents:UIControlEventValueChanged];
 	}
 	return self;
 }
@@ -39,13 +36,24 @@ typedef NS_ENUM(NSInteger, BDSettingsSection) {
 	[self.tableView reloadData];
 	[BDHelperClient.shared checkAlive:^(BOOL alive) {
 		self.helperState = alive ? @"Đang hoạt động" : @"Nghỉ (tự mở khi cần)";
-		[self.tableView reloadData];
+		NSIndexPath *helperRow = [NSIndexPath indexPathForRow:1 inSection:BDSettingsSectionAbout];
+		[self.tableView reloadRowsAtIndexPaths:@[helperRow] withRowAnimation:UITableViewRowAnimationNone];
 	}];
 }
 
+// Only the "Chọn app" row is inserted/removed — never reload the row whose switch is being
+// touched, and wait until the touch has finished (reloading it mid-touch froze the UI).
 - (void)mixToggled:(UISwitch *)toggle {
-	BDPrefsStore.shared.mixEnabled = toggle.on;
-	[self.tableView reloadSections:[NSIndexSet indexSetWithIndex:BDSettingsSectionMix] withRowAnimation:UITableViewRowAnimationNone];
+	BOOL on = toggle.on;
+	if (on == BDPrefsStore.shared.mixEnabled) return;
+	BDPrefsStore.shared.mixEnabled = on;
+	dispatch_async(dispatch_get_main_queue(), ^{
+		NSArray *rows = @[[NSIndexPath indexPathForRow:1 inSection:BDSettingsSectionMix]];
+		[self.tableView performBatchUpdates:^{
+			if (on) [self.tableView insertRowsAtIndexPaths:rows withRowAnimation:UITableViewRowAnimationFade];
+			else [self.tableView deleteRowsAtIndexPaths:rows withRowAnimation:UITableViewRowAnimationFade];
+		} completion:nil];
+	});
 }
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
@@ -84,11 +92,19 @@ typedef NS_ENUM(NSInteger, BDSettingsSection) {
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-	UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"row"]
-		?: [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"row"];
+	BOOL isSwitchRow = indexPath.section == BDSettingsSectionMix && indexPath.row == 0;
+	NSString *identifier = isSwitchRow ? @"switch" : @"row";
+	UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:identifier];
+	if (!cell) {
+		cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:identifier];
+		if (isSwitchRow) {
+			UISwitch *toggle = [UISwitch new];
+			[toggle addTarget:self action:@selector(mixToggled:) forControlEvents:UIControlEventValueChanged];
+			cell.accessoryView = toggle;
+		}
+	}
 	UIListContentConfiguration *content = [UIListContentConfiguration valueCellConfiguration];
 	cell.accessoryType = UITableViewCellAccessoryNone;
-	cell.accessoryView = nil;
 	cell.selectionStyle = UITableViewCellSelectionStyleDefault;
 	NSString *symbol = nil;
 	UIColor *color = UIColor.systemBlueColor;
@@ -98,8 +114,7 @@ typedef NS_ENUM(NSInteger, BDSettingsSection) {
 				content.text = @"Giữ nhạc khi phát video";
 				symbol = @"music.note.list";
 				color = UIColor.systemPinkColor;
-				self.mixSwitch.on = BDPrefsStore.shared.mixEnabled;
-				cell.accessoryView = self.mixSwitch;
+				((UISwitch *)cell.accessoryView).on = BDPrefsStore.shared.mixEnabled;
 				cell.selectionStyle = UITableViewCellSelectionStyleNone;
 			} else {
 				content.text = @"Chọn app";
