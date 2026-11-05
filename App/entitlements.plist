@@ -16,6 +16,16 @@
 	<true/>
 	<key>com.apple.BTServer.allowRestrictedServices</key>
 	<true/>
+	<key>com.apple.BTServer.programmaticPairing</key>
+	<true/>
+	<key>com.apple.BTServer.le</key>
+	<true/>
+	<key>com.apple.BTServer.scanDetail</key>
+	<true/>
+	<key>com.apple.BTServer.allowQuickRSSIRead</key>
+	<true/>
+	<key>com.apple.BTServer.avrcp</key>
+	<true/>
 	<key>com.apple.avfoundation.allows-access-to-device-list</key>
 	<true/>
 	<key>com.apple.avfoundation.allow-system-wide-context</key>

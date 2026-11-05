@@ -169,7 +169,9 @@ NSString *const BDBluetoothForgetFailedNotification = @"BDBluetoothForgetFailedN
 }
 
 - (void)setPowered:(BOOL)powered {
-	if ([self.manager respondsToSelector:@selector(setEnabled:)]) [self.manager setEnabled:powered];
+	// setEnabled:NO is the Control Center style "disconnect" that makes iOS ask to finish in
+	// Settings; a real power-off only needs setPowered:.
+	if (powered && [self.manager respondsToSelector:@selector(setEnabled:)]) [self.manager setEnabled:YES];
 	if ([self.manager respondsToSelector:@selector(setPowered:)]) [self.manager setPowered:powered];
 	[self scheduleChange];
 }
