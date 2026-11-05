@@ -1,13 +1,15 @@
 #import "BDDiagController.h"
 #import "BDDump.h"
 #import "BDExports.h"
+#import "BDLog.h"
 #import "BDPrivate.h"
 #import <AVFoundation/AVFoundation.h>
 #import <CoreBluetooth/CoreBluetooth.h>
 #import <dlfcn.h>
+#import <objc/message.h>
 #import <sys/utsname.h>
 
-static NSString *const kBDVersion = @"0.0.1";
+#define kBDVersion @"0.0.2"
 
 static NSArray<NSString *> *BDManagerGetters(void) {
 	return @[@"available", @"enabled", @"powered", @"powerState", @"bluetoothState", @"localAddress",
@@ -45,6 +47,9 @@ static NSArray<NSString *> *BDInspectedClasses(void) {
 @property (nonatomic, copy) NSArray<NSString *> *cSymbols;
 @property (nonatomic, copy) NSString *cSymbolsError;
 @property (nonatomic, assign) BOOL scanning;
+@property (nonatomic, assign) BOOL started;
+@property (nonatomic, copy) NSString *unfinishedStep;
+@property (nonatomic, strong) id batteryController;
 @end
 
 @implementation BDDiagController
@@ -60,22 +65,65 @@ static NSArray<NSString *> *BDInspectedClasses(void) {
 	self.navigationItem.rightBarButtonItems = @[share, refresh];
 	self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"Sao chép" style:UIBarButtonItemStylePlain target:self action:@selector(copyReport)];
 
-	[self loadFrameworks];
-	[NSNotificationCenter.defaultCenter addObserver:self selector:@selector(anyNotification:) name:nil object:nil];
-	[NSClassFromString(@"BluetoothManager") sharedInstance];
+	self.unfinishedStep = BDLogUnfinishedStep();
+	[self showIntro];
+}
 
-	id battery = [NSClassFromString(@"BCBatteryDeviceController") sharedInstance];
-	if ([battery respondsToSelector:@selector(addBatteryDeviceObserver:queue:)]) {
-		[battery addBatteryDeviceObserver:self queue:dispatch_get_main_queue()];
+- (void)showIntro {
+	BDSection *s = [BDSection title:@"Bluedeck " kBDVersion];
+	BDRow *start = [s add:@"Bắt đầu chẩn đoán" value:@"Chạy lần lượt từng bước; mỗi bước được ghi vào /var/mobile/Documents/Bluedeck/progress.log"];
+	__weak typeof(self) weakSelf = self;
+	start.action = ^{ [weakSelf startDiagnostics]; };
+	if (self.unfinishedStep) {
+		[s add:@"⚠︎ Lần chạy trước dừng ở" value:self.unfinishedStep];
 	}
+	self.sections = @[s];
+}
 
-	self.central = [[CBCentralManager alloc] initWithDelegate:self queue:dispatch_get_main_queue()
-		options:@{CBCentralManagerOptionShowPowerAlertKey: @NO}];
+- (void)startDiagnostics {
+	if (self.started) return;
+	self.started = YES;
+	BDLogReset();
+	BDInstallExceptionLogger();
+	BDLog(@"Bluedeck %@ · iOS %@", kBDVersion, UIDevice.currentDevice.systemVersion);
+
+	BDStep(@"dlopen frameworks", ^{ [self loadFrameworks]; });
+	BDStep(@"đăng ký notification", ^{
+		[NSNotificationCenter.defaultCenter addObserver:self selector:@selector(anyNotification:) name:nil object:nil];
+	});
+	BDStep(@"BluetoothManager sharedInstance", ^{ [self bluetoothManager]; });
+	BDStep(@"BCBatteryDeviceController", ^{
+		id battery = [self batteryController];
+		BDLog(@"   battery controller = %@", battery);
+		if ([battery respondsToSelector:@selector(addBatteryDeviceObserver:queue:)]) {
+			[battery addBatteryDeviceObserver:self queue:dispatch_get_main_queue()];
+		}
+	});
+	BDStep(@"CBCentralManager", ^{
+		self.central = [[CBCentralManager alloc] initWithDelegate:self queue:dispatch_get_main_queue()
+			options:@{CBCentralManagerOptionShowPowerAlertKey: @NO}];
+	});
 
 	[self refreshAll];
 	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
 		[self rebuild];
+		BDLog(@"%@ (lần dựng đầu)", BDLogDoneMarker);
 	});
+}
+
+- (id)bluetoothManager {
+	Class cls = NSClassFromString(@"BluetoothManager");
+	return [cls respondsToSelector:@selector(sharedInstance)] ? [cls sharedInstance] : nil;
+}
+
+// iOS 15 dropped +[BCBatteryDeviceController sharedInstance]; fall back to our own instance.
+- (id)batteryController {
+	if (_batteryController) return _batteryController;
+	Class cls = NSClassFromString(@"BCBatteryDeviceController");
+	if (!cls) return nil;
+	if ([cls respondsToSelector:@selector(sharedInstance)]) _batteryController = [cls sharedInstance];
+	else _batteryController = [[cls alloc] init];
+	return _batteryController;
 }
 
 - (void)loadFrameworks {
@@ -98,21 +146,27 @@ static NSArray<NSString *> *BDInspectedClasses(void) {
 #pragma mark - Data sources
 
 - (void)refreshAll {
-	Class routingClass = NSClassFromString(@"MPAVRoutingController");
-	if (routingClass && !self.routing) {
-		self.routing = [(MPAVRoutingController *)[routingClass alloc] initWithName:@"Bluedeck"];
-		if ([self.routing respondsToSelector:@selector(setDiscoveryMode:)]) [self.routing setDiscoveryMode:3];
-	}
-	if ([self.routing respondsToSelector:@selector(fetchAvailableRoutesWithCompletionHandler:)]) {
-		[self.routing fetchAvailableRoutesWithCompletionHandler:^(NSArray *routes) {
-			dispatch_async(dispatch_get_main_queue(), ^{
-				self.routes = [routes isKindOfClass:NSArray.class] ? routes : nil;
-				[self rebuild];
-			});
-		}];
-	}
-	id battery = [NSClassFromString(@"BCBatteryDeviceController") sharedInstance];
-	if ([battery respondsToSelector:@selector(connectedDevices)]) self.batteryDevices = [battery connectedDevices];
+	if (!self.started) return;
+	BDStep(@"MPAVRoutingController", ^{
+		Class routingClass = NSClassFromString(@"MPAVRoutingController");
+		if (routingClass && !self.routing) {
+			self.routing = [(MPAVRoutingController *)[routingClass alloc] initWithName:@"Bluedeck"];
+			if ([self.routing respondsToSelector:@selector(setDiscoveryMode:)]) [self.routing setDiscoveryMode:3];
+		}
+		if ([self.routing respondsToSelector:@selector(fetchAvailableRoutesWithCompletionHandler:)]) {
+			[self.routing fetchAvailableRoutesWithCompletionHandler:^(NSArray *routes) {
+				dispatch_async(dispatch_get_main_queue(), ^{
+					BDLog(@"   nhận %lu route", (unsigned long)routes.count);
+					self.routes = [routes isKindOfClass:NSArray.class] ? routes : nil;
+					[self rebuild];
+				});
+			}];
+		}
+	});
+	BDStep(@"BatteryCenter connectedDevices", ^{
+		id battery = [self batteryController];
+		if ([battery respondsToSelector:@selector(connectedDevices)]) self.batteryDevices = [battery connectedDevices];
+	});
 	[self rebuild];
 }
 
@@ -155,16 +209,25 @@ static NSArray<NSString *> *BDInspectedClasses(void) {
 #pragma mark - Sections
 
 - (void)rebuild {
+	if (!self.started) return;
 	NSMutableArray *sections = [NSMutableArray array];
-	[sections addObject:[self overviewSection]];
-	[sections addObjectsFromArray:[self deviceSections]];
-	[sections addObject:[self batterySection]];
-	[sections addObject:[self routesSection]];
-	[sections addObject:[self audioSessionSection]];
-	[sections addObject:[self bleSection]];
-	[sections addObject:[self methodsSection]];
-	[sections addObject:[self cSymbolsSection]];
-	[sections addObject:[self eventsSection]];
+	NSArray *builders = @[@"overviewSection", @"deviceSections", @"batterySection", @"routesSection",
+		@"audioSessionSection", @"bleSection", @"methodsSection", @"cSymbolsSection", @"eventsSection"];
+	for (NSString *builder in builders) {
+		__block id result = nil;
+		NSException *e = BDStep([@"dựng " stringByAppendingString:builder], ^{
+			result = ((id (*)(id, SEL))objc_msgSend)(self, NSSelectorFromString(builder));
+		});
+		if (e) {
+			BDSection *error = [BDSection title:[NSString stringWithFormat:@"⚠︎ %@ lỗi", builder]];
+			[error add:e.name value:e.reason];
+			[sections addObject:error];
+		} else if ([result isKindOfClass:NSArray.class]) {
+			[sections addObjectsFromArray:result];
+		} else if (result) {
+			[sections addObject:result];
+		}
+	}
 	self.sections = sections;
 }
 
@@ -182,7 +245,7 @@ static NSArray<NSString *> *BDInspectedClasses(void) {
 		return s;
 	}
 	[s add:@"lastInitError" value:BDCallGetter(managerClass, @"lastInitError")];
-	id manager = [managerClass sharedInstance];
+	id manager = [self bluetoothManager];
 	for (NSString *getter in BDManagerGetters()) {
 		[s add:getter value:BDCallGetter(manager, getter) ?: @"(không có trên iOS này)"];
 	}
@@ -236,7 +299,7 @@ static NSArray<NSString *> *BDInspectedClasses(void) {
 }
 
 - (NSArray<BDSection *> *)deviceSections {
-	BluetoothManager *manager = [NSClassFromString(@"BluetoothManager") sharedInstance];
+	BluetoothManager *manager = [self bluetoothManager];
 	BDSection *paired = [BDSection title:@"Thiết bị đã ghép đôi"];
 	BDSection *connected = [BDSection title:@"Đang kết nối / đang nối"];
 	if (!manager) return @[paired];
@@ -268,7 +331,7 @@ static NSArray<NSString *> *BDInspectedClasses(void) {
 }
 
 - (void)toggleScan {
-	id manager = [NSClassFromString(@"BluetoothManager") sharedInstance];
+	id manager = [self bluetoothManager];
 	SEL sel = NSSelectorFromString(@"setDeviceScanningEnabled:");
 	if (![manager respondsToSelector:sel]) return;
 	self.scanning = !self.scanning;
