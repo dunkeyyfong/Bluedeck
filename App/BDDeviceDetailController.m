@@ -46,6 +46,8 @@
 
 - (void)viewDidLoad {
 	[super viewDidLoad];
+	self.tableView.rowHeight = UITableViewAutomaticDimension;
+	self.tableView.estimatedRowHeight = 50;
 	[self buildHeader];
 	[NSNotificationCenter.defaultCenter addObserver:self selector:@selector(reload) name:BDBluetoothDidChangeNotification object:nil];
 	[self reload];
@@ -269,16 +271,16 @@
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
 	BDDetailRow *row = self.sections[indexPath.section].rows[indexPath.row];
-	NSString *identifier = row.tint ? @"action" : @"value";
-	UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:identifier];
-	if (!cell) {
-		cell = [[UITableViewCell alloc] initWithStyle:row.tint ? UITableViewCellStyleDefault : UITableViewCellStyleValue1 reuseIdentifier:identifier];
-		cell.detailTextLabel.numberOfLines = 0;
-		cell.textLabel.numberOfLines = 0;
-	}
-	cell.textLabel.text = row.title;
-	cell.detailTextLabel.text = row.value;
-	cell.textLabel.textColor = row.tint ?: UIColor.labelColor;
+	UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"row"]
+		?: [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"row"];
+	// List content configurations self-size, so multi-line values (services) get their own height.
+	UIListContentConfiguration *content = row.tint ? [UIListContentConfiguration cellConfiguration] : [UIListContentConfiguration valueCellConfiguration];
+	content.text = row.title;
+	content.secondaryText = row.value;
+	content.textProperties.color = row.tint ?: UIColor.labelColor;
+	content.secondaryTextProperties.numberOfLines = 0;
+	content.prefersSideBySideTextAndSecondaryText = YES;
+	cell.contentConfiguration = content;
 	cell.accessoryType = row.checked ? UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryNone;
 	cell.selectionStyle = row.action ? UITableViewCellSelectionStyleDefault : UITableViewCellSelectionStyleNone;
 	return cell;
