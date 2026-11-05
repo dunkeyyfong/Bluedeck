@@ -30,10 +30,11 @@ void BDPresentForget(UIViewController *host, id deviceObj, void (^done)(void)) {
 
 UIBarButtonItem *BDSettingsButton(UIViewController *host) {
 	__weak UIViewController *weakHost = host;
-	UIAction *open = [UIAction actionWithTitle:@"Cài đặt" image:nil identifier:nil handler:^(UIAction *action) {
+	// A bar item built from an action takes its image from it; an empty title keeps it icon-only.
+	UIAction *open = [UIAction actionWithTitle:@"" image:[UIImage systemImageNamed:@"gearshape"] identifier:nil handler:^(UIAction *action) {
 		[weakHost.navigationController pushViewController:[BDSettingsController new] animated:YES];
 	}];
-	return [[UIBarButtonItem alloc] initWithTitle:nil image:[UIImage systemImageNamed:@"gearshape"] primaryAction:open menu:nil];
+	return [[UIBarButtonItem alloc] initWithPrimaryAction:open];
 }
 
 @interface BDDevicesController ()
