@@ -1,0 +1,9 @@
+Package: com.pgong.bluedeck
+Name: Bluedeck
+Version: 0.0.1
+Architecture: iphoneos-arm64
+Description: Trình quản lý Bluetooth thay cho cài đặt mặc định của iOS.
+Maintainer: pgong
+Author: pgong
+Section: Utilities
+Depends: firmware (>= 15.0)

@@ -1,0 +1,6 @@
+.theos/
+packages/
+theos/
+App/Resources/AppIcon*.png
+*.deb
+.DS_Store
