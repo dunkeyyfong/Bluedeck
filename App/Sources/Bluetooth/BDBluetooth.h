@@ -1,4 +1,5 @@
 #import <Foundation/Foundation.h>
+#import "BDPrefs.h"
 #import "BDPrivate.h"
 
 // Posted (debounced, main thread) whenever devices, power, scanning or audio routes change.
@@ -47,6 +48,11 @@ typedef NS_OPTIONS(unsigned int, BDService) {
 - (void)disconnect:(BluetoothDevice *)device;
 - (void)forget:(BluetoothDevice *)device;
 - (BOOL)isForgetting:(BluetoothDevice *)device;
+
+// "Dùng cho": which profiles a headset may use (only offered when it has both music and calls).
+- (BOOL)supportsProfileChoice:(BluetoothDevice *)device;
+- (BDProfile)profileFor:(BluetoothDevice *)device;
+- (void)setProfile:(BDProfile)profile forDevice:(BluetoothDevice *)device;
 
 - (void)startScan;
 - (void)stopScan;

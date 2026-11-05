@@ -1,12 +1,15 @@
 #import "BDSettingsController.h"
 #import "BDDiagController.h"
 #import "BDHelperClient.h"
+#import "BDMixAppsController.h"
+#import "BDPrefsStore.h"
 
 NSString *BDAppVersion(void) {
 	return [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"?";
 }
 
 typedef NS_ENUM(NSInteger, BDSettingsSection) {
+	BDSettingsSectionMix,
 	BDSettingsSectionAbout,
 	BDSettingsSectionSystem,
 	BDSettingsSectionAdvanced,
@@ -15,6 +18,7 @@ typedef NS_ENUM(NSInteger, BDSettingsSection) {
 
 @interface BDSettingsController ()
 @property (nonatomic, copy) NSString *helperState;
+@property (nonatomic, strong) UISwitch *mixSwitch;
 @end
 
 @implementation BDSettingsController
@@ -24,16 +28,24 @@ typedef NS_ENUM(NSInteger, BDSettingsSection) {
 		self.title = @"Cài đặt";
 		self.navigationItem.largeTitleDisplayMode = UINavigationItemLargeTitleDisplayModeNever;
 		_helperState = @"Đang kiểm tra…";
+		_mixSwitch = [UISwitch new];
+		[_mixSwitch addTarget:self action:@selector(mixToggled:) forControlEvents:UIControlEventValueChanged];
 	}
 	return self;
 }
 
 - (void)viewWillAppear:(BOOL)animated {
 	[super viewWillAppear:animated];
+	[self.tableView reloadData];
 	[BDHelperClient.shared checkAlive:^(BOOL alive) {
 		self.helperState = alive ? @"Đang hoạt động" : @"Nghỉ (tự mở khi cần)";
 		[self.tableView reloadData];
 	}];
+}
+
+- (void)mixToggled:(UISwitch *)toggle {
+	BDPrefsStore.shared.mixEnabled = toggle.on;
+	[self.tableView reloadSections:[NSIndexSet indexSetWithIndex:BDSettingsSectionMix] withRowAnimation:UITableViewRowAnimationNone];
 }
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
@@ -42,6 +54,7 @@ typedef NS_ENUM(NSInteger, BDSettingsSection) {
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
 	switch (section) {
+		case BDSettingsSectionMix: return BDPrefsStore.shared.mixEnabled ? 2 : 1;
 		case BDSettingsSectionAbout: return 2;
 		default: return 1;
 	}
@@ -49,6 +62,7 @@ typedef NS_ENUM(NSInteger, BDSettingsSection) {
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
 	switch (section) {
+		case BDSettingsSectionMix: return @"Âm thanh";
 		case BDSettingsSectionAbout: return @"Bluedeck";
 		case BDSettingsSectionSystem: return @"Hệ thống";
 		case BDSettingsSectionAdvanced: return @"Nâng cao";
@@ -58,6 +72,9 @@ typedef NS_ENUM(NSInteger, BDSettingsSection) {
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
 	switch (section) {
+		case BDSettingsSectionMix:
+			return @"Nhạc đang phát không bị dừng khi app đã chọn phát video hay âm thanh — hai nguồn phát cùng lúc. "
+				@"Video trong Safari chưa được hỗ trợ.";
 		case BDSettingsSectionAbout:
 			return @"Quên, quét, ghép đôi và bật/tắt Bluetooth được thực hiện bởi BluedeckHelper chạy ngầm trong app Cài đặt.";
 		case BDSettingsSectionAdvanced:
@@ -71,10 +88,28 @@ typedef NS_ENUM(NSInteger, BDSettingsSection) {
 		?: [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"row"];
 	UIListContentConfiguration *content = [UIListContentConfiguration valueCellConfiguration];
 	cell.accessoryType = UITableViewCellAccessoryNone;
+	cell.accessoryView = nil;
 	cell.selectionStyle = UITableViewCellSelectionStyleDefault;
 	NSString *symbol = nil;
 	UIColor *color = UIColor.systemBlueColor;
 	switch (indexPath.section) {
+		case BDSettingsSectionMix:
+			if (indexPath.row == 0) {
+				content.text = @"Giữ nhạc khi phát video";
+				symbol = @"music.note.list";
+				color = UIColor.systemPinkColor;
+				self.mixSwitch.on = BDPrefsStore.shared.mixEnabled;
+				cell.accessoryView = self.mixSwitch;
+				cell.selectionStyle = UITableViewCellSelectionStyleNone;
+			} else {
+				content.text = @"Chọn app";
+				NSUInteger count = BDPrefsStore.shared.mixApps.count;
+				content.secondaryText = count ? [NSString stringWithFormat:@"%lu app", (unsigned long)count] : @"Chưa chọn";
+				symbol = @"square.grid.2x2.fill";
+				color = UIColor.systemPinkColor;
+				cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+			}
+			break;
 		case BDSettingsSectionAbout:
 			if (indexPath.row == 0) {
 				content.text = @"Phiên bản";
@@ -107,8 +142,17 @@ typedef NS_ENUM(NSInteger, BDSettingsSection) {
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
 	[tableView deselectRowAtIndexPath:indexPath animated:YES];
-	if (indexPath.section == BDSettingsSectionSystem) BDOpenBluetoothSettings();
-	if (indexPath.section == BDSettingsSectionAdvanced) [self.navigationController pushViewController:[BDDiagController new] animated:YES];
+	switch (indexPath.section) {
+		case BDSettingsSectionMix:
+			if (indexPath.row == 1) [self.navigationController pushViewController:[BDMixAppsController new] animated:YES];
+			break;
+		case BDSettingsSectionSystem:
+			BDOpenBluetoothSettings();
+			break;
+		case BDSettingsSectionAdvanced:
+			[self.navigationController pushViewController:[BDDiagController new] animated:YES];
+			break;
+	}
 }
 
 @end

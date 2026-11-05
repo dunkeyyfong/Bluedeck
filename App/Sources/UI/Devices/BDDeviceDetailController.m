@@ -47,6 +47,9 @@ static UIColor *BDDetailShade(UIColor *color, CGFloat brightness, CGFloat satura
 @property (nonatomic, strong) UIColor *tint;     // non-nil = action row
 @property (nonatomic, copy) void (^action)(void);
 @property (nonatomic, assign) BOOL checked;
+@property (nonatomic, copy) NSArray<NSString *> *segments; // non-nil = segmented control row
+@property (nonatomic, assign) NSInteger selectedSegment;
+@property (nonatomic, copy) void (^onSegment)(NSInteger index);
 @end
 
 @implementation BDDetailRow
@@ -232,6 +235,23 @@ static UIColor *BDDetailShade(UIColor *color, CGFloat brightness, CGFloat satura
 
 	NSMutableArray *sections = [NSMutableArray array];
 
+	if ([bt supportsProfileChoice:device]) {
+		BDDetailSection *usage = [self section:@"Dùng cho"];
+		BDDetailRow *row = [self add:usage title:nil value:nil];
+		row.segments = @[@"Nhạc + gọi", @"Chỉ nghe nhạc", @"Chỉ cuộc gọi"];
+		BDProfile profile = [bt profileFor:device];
+		row.selectedSegment = profile == BDProfileMusic ? 1 : profile == BDProfileCalls ? 2 : 0;
+		__weak typeof(self) weakSelf = self;
+		row.onSegment = ^(NSInteger index) {
+			BDProfile chosen = index == 1 ? BDProfileMusic : index == 2 ? BDProfileCalls : BDProfileBoth;
+			if (weakSelf.device) [BDBluetooth.shared setProfile:chosen forDevice:weakSelf.device];
+		};
+		usage.footer = profile == BDProfileMusic ? @"Cuộc gọi vẫn ở iPhone, thiết bị này chỉ phát nhạc."
+			: profile == BDProfileCalls ? @"Thiết bị này chỉ dùng để nghe gọi, nhạc vẫn phát nơi khác."
+			: @"Thiết bị dùng cho cả nhạc và cuộc gọi như bình thường.";
+		[sections addObject:usage];
+	}
+
 	BDDetailSection *info = [self section:@"Thông số"];
 	[self add:info title:@"Tên" value:device.name];
 	if (device.productName.length && ![device.productName isEqualToString:device.name]) [self add:info title:@"Tên gốc" value:device.productName];
@@ -272,6 +292,27 @@ static UIColor *BDDetailShade(UIColor *color, CGFloat brightness, CGFloat satura
 	return nil;
 }
 
+- (UITableViewCell *)segmentCellFor:(BDDetailRow *)row {
+	UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
+	cell.selectionStyle = UITableViewCellSelectionStyleNone;
+	UISegmentedControl *control = [[UISegmentedControl alloc] initWithItems:row.segments];
+	control.selectedSegmentIndex = row.selectedSegment;
+	control.translatesAutoresizingMaskIntoConstraints = NO;
+	void (^onSegment)(NSInteger) = row.onSegment;
+	[control addAction:[UIAction actionWithHandler:^(UIAction *action) {
+		if (onSegment) onSegment(((UISegmentedControl *)action.sender).selectedSegmentIndex);
+	}] forControlEvents:UIControlEventValueChanged];
+	[cell.contentView addSubview:control];
+	UILayoutGuide *margins = cell.contentView.layoutMarginsGuide;
+	[NSLayoutConstraint activateConstraints:@[
+		[control.leadingAnchor constraintEqualToAnchor:margins.leadingAnchor],
+		[control.trailingAnchor constraintEqualToAnchor:margins.trailingAnchor],
+		[control.topAnchor constraintEqualToAnchor:cell.contentView.topAnchor constant:10],
+		[control.bottomAnchor constraintEqualToAnchor:cell.contentView.bottomAnchor constant:-10],
+	]];
+	return cell;
+}
+
 #pragma mark - Table
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
@@ -292,6 +333,7 @@ static UIColor *BDDetailShade(UIColor *color, CGFloat brightness, CGFloat satura
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
 	BDDetailRow *row = self.sections[indexPath.section].rows[indexPath.row];
+	if (row.segments) return [self segmentCellFor:row];
 	UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"row"]
 		?: [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"row"];
 	// List content configurations self-size, so multi-line values (services) get their own height.

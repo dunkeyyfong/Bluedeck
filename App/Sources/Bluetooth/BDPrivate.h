@@ -24,8 +24,10 @@
 - (unsigned int)clickHoldMode:(int *)left rightAction:(int *)right;
 - (unsigned int)doubleTapActionEx:(unsigned int *)left rightAction:(unsigned int *)right;
 - (void)connect;
+- (void)connectWithServices:(unsigned int)services;
 - (void)disconnect;
 - (void)unpair;
+- (void *)device; // BTDeviceImpl * for the MobileBluetooth C API
 - (void)acceptSSP:(long long)result;
 - (void)setPIN:(NSString *)pin;
 @end
@@ -43,6 +45,7 @@
 - (NSArray *)connectedDevices;
 - (NSArray *)connectingDevices;
 - (void)connectDevice:(BluetoothDevice *)device;
+- (void)connectDevice:(BluetoothDevice *)device withServices:(unsigned int)services;
 - (void)disconnectDevice:(BluetoothDevice *)device;
 - (void)unpairDevice:(BluetoothDevice *)device;
 - (void)setDeviceScanningEnabled:(BOOL)enabled;

@@ -1,5 +1,6 @@
 #import "BDBluetooth.h"
 #import "BDHelperClient.h"
+#import "BDPrefsStore.h"
 #import <UIKit/UIKit.h>
 #import <dlfcn.h>
 
@@ -201,9 +202,70 @@ NSString *const BDBluetoothHelperErrorNotification = @"BDBluetoothHelperErrorNot
 #pragma mark - Actions
 
 - (void)connect:(BluetoothDevice *)device {
-	if ([self.manager respondsToSelector:@selector(connectDevice:)]) [self.manager connectDevice:device];
+	unsigned int services = [self servicesForProfile:[self profileFor:device]];
+	if (services && [self.manager respondsToSelector:@selector(connectDevice:withServices:)]) [self.manager connectDevice:device withServices:services];
+	else if ([self.manager respondsToSelector:@selector(connectDevice:)]) [self.manager connectDevice:device];
 	else [device connect];
 	[self scheduleChange];
+}
+
+#pragma mark - Profiles
+
+- (BOOL)supportsProfileChoice:(BluetoothDevice *)device {
+	return BDDeviceSupports(device, BDServiceHandsfree) && BDDeviceSupports(device, BDServiceA2DP);
+}
+
+- (BDProfile)profileFor:(BluetoothDevice *)device {
+	return [self supportsProfileChoice:device] ? [BDPrefsStore.shared profileForAddress:device.address] : BDProfileBoth;
+}
+
+// 0 = let iOS connect everything it normally would.
+- (unsigned int)servicesForProfile:(BDProfile)profile {
+	switch (profile) {
+		case BDProfileMusic: return kBDServiceMusic;
+		case BDProfileCalls: return kBDServiceHandsfree;
+		case BDProfileBoth: return 0;
+	}
+	return 0;
+}
+
+- (void)setProfile:(BDProfile)profile forDevice:(BluetoothDevice *)device {
+	[BDPrefsStore.shared setProfile:profile forAddress:device.address];
+	if (device.connected) [self applyProfile:profile toDevice:device];
+	[self scheduleChange];
+}
+
+// Drops the profiles the user doesn't want and brings up the ones they do. The first time
+// BTDeviceDisconnectServices visibly works, SpringBoard is allowed to enforce it on reconnects.
+- (void)applyProfile:(BDProfile)profile toDevice:(BluetoothDevice *)device {
+	unsigned int wanted = profile == BDProfileBoth ? (kBDServiceMusic | kBDServiceHandsfree) : [self servicesForProfile:profile];
+	unsigned int unwanted = profile == BDProfileMusic ? kBDServiceHandsfree : profile == BDProfileCalls ? kBDServiceMusic : 0;
+	unsigned long long current = device.connectedServices;
+
+	if (unwanted && (current & unwanted)) {
+		typedef int (*DisconnectServices)(void *device, uint32_t services);
+		DisconnectServices disconnectServices = (DisconnectServices)dlsym(RTLD_DEFAULT, "BTDeviceDisconnectServices");
+		void *handle = [device respondsToSelector:@selector(device)] ? [device device] : NULL;
+		if (disconnectServices && handle) {
+			disconnectServices(handle, unwanted);
+			dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+				if (!(device.connectedServices & unwanted) && !BDPrefsStore.shared.profilesVerified) BDPrefsStore.shared.profilesVerified = YES;
+				[self scheduleChange];
+			});
+		}
+	}
+	unsigned int missing = wanted & ~(unsigned int)current & ([self supportedMask:device]);
+	if (missing && [self.manager respondsToSelector:@selector(connectDevice:withServices:)]) {
+		[self.manager connectDevice:device withServices:missing];
+	}
+}
+
+- (unsigned int)supportedMask:(BluetoothDevice *)device {
+	unsigned int mask = 0;
+	for (unsigned int bit = 0; bit < 32; bit++) {
+		if (BDDeviceSupports(device, 1u << bit)) mask |= 1u << bit;
+	}
+	return mask;
 }
 
 - (void)disconnect:(BluetoothDevice *)device {
