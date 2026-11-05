@@ -7,6 +7,9 @@
 
 + (instancetype)shared;
 
+// YES if BluedeckHelper answers right now (does not wake Settings).
+- (void)checkAlive:(void (^)(BOOL alive))completion;
+
 // wake = NO only sends if Settings is already answering (used for "stop scanning").
 - (void)send:(BDHelperOp)op address:(NSString *)address wake:(BOOL)wake completion:(void (^)(BDHelperStatus status))completion;
 

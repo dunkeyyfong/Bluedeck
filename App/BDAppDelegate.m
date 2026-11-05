@@ -2,7 +2,6 @@
 #import "BDAudioController.h"
 #import "BDBluetooth.h"
 #import "BDDevicesController.h"
-#import "BDDiagController.h"
 #import "BDEntitlements.h"
 
 @implementation BDAppDelegate
@@ -13,12 +12,10 @@
 	[NSNotificationCenter.defaultCenter addObserver:self selector:@selector(forgetFailed:) name:BDBluetoothForgetFailedNotification object:nil];
 	[NSNotificationCenter.defaultCenter addObserver:self selector:@selector(helperError:) name:BDBluetoothHelperErrorNotification object:nil];
 
-	BDDiagController *diag = [BDDiagController new];
-	diag.tabBarItem = [[UITabBarItem alloc] initWithTitle:@"Chẩn đoán" image:[UIImage systemImageNamed:@"stethoscope"] tag:2];
-
+	// Diagnostics lives under the gear button (Cài đặt › Nâng cao), not in the tab bar.
 	UITabBarController *tabs = [UITabBarController new];
 	NSMutableArray *navs = [NSMutableArray array];
-	for (UIViewController *root in @[[BDDevicesController new], [BDAudioController new], diag]) {
+	for (UIViewController *root in @[[BDDevicesController new], [BDAudioController new]]) {
 		UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:root];
 		nav.navigationBar.prefersLargeTitles = YES;
 		nav.tabBarItem = root.tabBarItem;

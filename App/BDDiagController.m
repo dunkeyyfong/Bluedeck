@@ -1,5 +1,6 @@
 #import "BDDiagController.h"
 #import "BDCodeDump.h"
+#import "BDSettingsController.h"
 #import "BDDump.h"
 #import "BDEntitlements.h"
 #import "BDExports.h"
@@ -11,7 +12,7 @@
 #import <objc/message.h>
 #import <sys/utsname.h>
 
-#define kBDVersion @"0.2.0"
+#define kBDVersion BDAppVersion()
 
 static NSArray<NSString *> *BDManagerGetters(void) {
 	return @[@"available", @"enabled", @"powered", @"powerState", @"bluetoothState", @"localAddress",
@@ -59,6 +60,9 @@ static NSArray<NSString *> *BDInspectedClasses(void) {
 - (void)viewDidLoad {
 	[super viewDidLoad];
 	self.title = @"Chẩn đoán";
+	self.navigationItem.largeTitleDisplayMode = UINavigationItemLargeTitleDisplayModeNever;
+	// Pushed from Settings: keep the back button next to "Sao chép".
+	self.navigationItem.leftItemsSupplementBackButton = YES;
 	self.events = [NSMutableArray array];
 	self.discovered = [NSMutableDictionary dictionary];
 
@@ -72,7 +76,7 @@ static NSArray<NSString *> *BDInspectedClasses(void) {
 }
 
 - (void)showIntro {
-	BDSection *s = [BDSection title:@"Bluedeck " kBDVersion];
+	BDSection *s = [BDSection title:[@"Bluedeck " stringByAppendingString:kBDVersion]];
 	BDRow *start = [s add:@"Bắt đầu chẩn đoán" value:@"Chạy lần lượt từng bước; mỗi bước được ghi vào /var/mobile/Documents/Bluedeck/progress.log"];
 	__weak typeof(self) weakSelf = self;
 	start.action = ^{ [weakSelf startDiagnostics]; };

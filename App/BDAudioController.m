@@ -1,7 +1,7 @@
 #import "BDAudioController.h"
 #import "BDBluetooth.h"
-#import "BDDeviceCell.h"
-#import "BDDeviceStyle.h"
+#import "BDCards.h"
+#import "BDDevicesController.h"
 #import <AVFoundation/AVFoundation.h>
 
 typedef NS_ENUM(NSInteger, BDAudioSection) {
@@ -11,26 +11,43 @@ typedef NS_ENUM(NSInteger, BDAudioSection) {
 };
 
 @interface BDAudioController ()
+@property (nonatomic, copy) NSArray<NSNumber *> *sectionKinds;
 @property (nonatomic, copy) NSArray<MPAVRoute *> *routes;
 @property (nonatomic, copy) NSArray<BluetoothDevice *> *offline;
-@property (nonatomic, copy) NSArray<NSArray<NSString *> *> *stream;
 @end
 
 @implementation BDAudioController
 
 - (instancetype)init {
-	if ((self = [super initWithStyle:UITableViewStyleInsetGrouped])) {
+	__block __weak BDAudioController *weakSelf = nil;
+	UICollectionViewLayout *layout = BDCardLayout(^BDSectionStyle(NSInteger section) {
+		return [weakSelf kindAt:section] == BDAudioSectionStream ? BDSectionStyleFull : BDSectionStyleGrid;
+	}, ^BOOL(NSInteger section) {
+		return YES;
+	});
+	if ((self = [super initWithCollectionViewLayout:layout])) {
+		weakSelf = self;
 		self.title = @"Âm thanh";
 		self.tabBarItem = [[UITabBarItem alloc] initWithTitle:@"Âm thanh" image:[UIImage systemImageNamed:@"hifispeaker.2"] tag:1];
+		_sectionKinds = @[@(BDAudioSectionRoutes), @(BDAudioSectionStream)];
 	}
 	return self;
 }
 
+- (BDAudioSection)kindAt:(NSInteger)section {
+	return section < (NSInteger)self.sectionKinds.count ? (BDAudioSection)self.sectionKinds[section].integerValue : BDAudioSectionRoutes;
+}
+
 - (void)viewDidLoad {
 	[super viewDidLoad];
-	self.tableView.rowHeight = UITableViewAutomaticDimension;
-	self.tableView.estimatedRowHeight = 60;
-	[self.tableView registerClass:BDDeviceCell.class forCellReuseIdentifier:@"device"];
+	self.collectionView.backgroundColor = UIColor.systemGroupedBackgroundColor;
+	self.collectionView.alwaysBounceVertical = YES;
+	self.collectionView.contentInset = UIEdgeInsetsMake(8, 0, 24, 0);
+	[self.collectionView registerClass:BDTileCell.class forCellWithReuseIdentifier:@"tile"];
+	[self.collectionView registerClass:BDStatsCell.class forCellWithReuseIdentifier:@"stats"];
+	[self.collectionView registerClass:BDActionCell.class forCellWithReuseIdentifier:@"empty"];
+	[self.collectionView registerClass:BDSectionHeaderView.class forSupplementaryViewOfKind:UICollectionElementKindSectionHeader withReuseIdentifier:@"header"];
+	self.navigationItem.rightBarButtonItem = BDSettingsButton(self);
 	[NSNotificationCenter.defaultCenter addObserver:self selector:@selector(reload) name:BDBluetoothDidChangeNotification object:nil];
 	[self reload];
 }
@@ -49,16 +66,11 @@ typedef NS_ENUM(NSInteger, BDAudioSection) {
 		if (BDDeviceSupports(device, BDServiceA2DP) && ![bt routeForDevice:device]) [offline addObject:device];
 	}
 	self.offline = offline;
-
-	AVAudioSession *session = AVAudioSession.sharedInstance;
-	AVAudioSessionPortDescription *port = session.currentRoute.outputs.firstObject;
-	NSMutableArray *stream = [NSMutableArray array];
-	if (port) [stream addObject:@[@"Ngõ ra", port.portName ?: @"?"]];
-	[stream addObject:@[@"Tần số lấy mẫu", [NSString stringWithFormat:@"%.1f kHz", session.sampleRate / 1000.0]]];
-	[stream addObject:@[@"Kênh", @((NSInteger)port.channels.count ?: session.outputNumberOfChannels).stringValue]];
-	[stream addObject:@[@"Độ trễ ra loa", [NSString stringWithFormat:@"%.0f ms", session.outputLatency * 1000]]];
-	self.stream = stream;
-	[self.tableView reloadData];
+	NSMutableArray *kinds = [NSMutableArray arrayWithObject:@(BDAudioSectionRoutes)];
+	if (offline.count) [kinds addObject:@(BDAudioSectionOffline)];
+	[kinds addObject:@(BDAudioSectionStream)];
+	self.sectionKinds = kinds;
+	[self.collectionView reloadData];
 }
 
 - (BluetoothDevice *)deviceForRoute:(MPAVRoute *)route {
@@ -68,85 +80,94 @@ typedef NS_ENUM(NSInteger, BDAudioSection) {
 	return nil;
 }
 
-#pragma mark - Table
+#pragma mark - Data source
 
-- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
-	return 3;
+- (NSInteger)numberOfSectionsInCollectionView:(UICollectionView *)collectionView {
+	return self.sectionKinds.count;
 }
 
-- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-	switch (section) {
+- (NSInteger)collectionView:(UICollectionView *)collectionView numberOfItemsInSection:(NSInteger)section {
+	switch ([self kindAt:section]) {
 		case BDAudioSectionRoutes: return MAX(self.routes.count, (NSUInteger)1);
 		case BDAudioSectionOffline: return self.offline.count;
-		default: return self.stream.count;
+		case BDAudioSectionStream: return 1;
 	}
+	return 0;
 }
 
-- (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
-	switch (section) {
-		case BDAudioSectionRoutes: return @"Phát ra";
-		case BDAudioSectionOffline: return self.offline.count ? @"Loa / tai nghe chưa kết nối" : nil;
-		default: return @"Luồng âm thanh";
+- (UICollectionReusableView *)collectionView:(UICollectionView *)collectionView viewForSupplementaryElementOfKind:(NSString *)kind atIndexPath:(NSIndexPath *)indexPath {
+	BDSectionHeaderView *header = [collectionView dequeueReusableSupplementaryViewOfKind:kind withReuseIdentifier:@"header" forIndexPath:indexPath];
+	switch ([self kindAt:indexPath.section]) {
+		case BDAudioSectionRoutes: header.label.text = @"Phát ra"; break;
+		case BDAudioSectionOffline: header.label.text = @"Chưa kết nối"; break;
+		case BDAudioSectionStream: header.label.text = @"Luồng âm thanh"; break;
 	}
+	return header;
 }
 
-- (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
-	switch (section) {
-		case BDAudioSectionRoutes: return @"Chạm để chuyển. iPhone chỉ phát ra một thiết bị Bluetooth tại một thời điểm.";
-		case BDAudioSectionOffline: return self.offline.count ? @"“Phát ra đây” sẽ kết nối rồi tự chuyển âm thanh sang thiết bị đó." : nil;
-		default: return @"iPhone chỉ có codec SBC và AAC — không có LDAC/aptX.";
+- (UICollectionViewCell *)collectionView:(UICollectionView *)collectionView cellForItemAtIndexPath:(NSIndexPath *)indexPath {
+	BDBluetooth *bt = BDBluetooth.shared;
+	switch ([self kindAt:indexPath.section]) {
+		case BDAudioSectionRoutes: {
+			if (!self.routes.count) {
+				BDActionCell *cell = [collectionView dequeueReusableCellWithReuseIdentifier:@"empty" forIndexPath:indexPath];
+				[cell configureWithSymbol:@"hourglass" title:@"Đang lấy danh sách…" tint:UIColor.secondaryLabelColor];
+				return cell;
+			}
+			MPAVRoute *route = self.routes[indexPath.item];
+			BluetoothDevice *device = [self deviceForRoute:route];
+			BDDeviceKind *kind = route.isDeviceSpeakerRoute
+				? [BDDeviceKind kindWithName:@"iPhone" symbol:@"iphone" color:UIColor.systemGrayColor]
+				: device ? [BDDeviceKind kindForDevice:device] : [BDDeviceKind kindWithName:@"Âm thanh" symbol:@"speaker.wave.2.fill" color:UIColor.systemOrangeColor];
+			NSMutableArray *status = [NSMutableArray arrayWithObject:route.isPicked ? @"Đang phát" : @"Sẵn sàng"];
+			NSInteger battery = device ? BDBatteryPercent(device) : -1;
+			if (battery >= 0) [status addObject:[NSString stringWithFormat:@"%ld%%", (long)battery]];
+			BDTileCell *cell = [collectionView dequeueReusableCellWithReuseIdentifier:@"tile" forIndexPath:indexPath];
+			[cell configureWithKind:kind title:route.routeName ?: @"?" subtitle:[status componentsJoinedByString:@" · "]
+				dotColor:route.isPicked ? UIColor.systemGreenColor : nil selected:route.isPicked busy:NO
+				accessorySymbol:route.isPicked ? @"checkmark.circle.fill" : nil accessoryTint:UIColor.systemBlueColor];
+			cell.onAccessory = nil;
+			return cell;
+		}
+		case BDAudioSectionOffline: {
+			BluetoothDevice *device = self.offline[indexPath.item];
+			BOOL busy = [bt isWaitingToPlayOn:device] || [bt isConnecting:device];
+			BDTileCell *cell = [collectionView dequeueReusableCellWithReuseIdentifier:@"tile" forIndexPath:indexPath];
+			[cell configureWithKind:[BDDeviceKind kindForDevice:device] title:device.name ?: @"?" subtitle:busy ? @"Đang kết nối…" : @"Chạm để phát ra đây"
+				dotColor:nil selected:NO busy:busy accessorySymbol:@"play.circle.fill" accessoryTint:UIColor.systemBlueColor];
+			__weak BluetoothDevice *weakDevice = device;
+			cell.onAccessory = ^{ if (weakDevice) [BDBluetooth.shared playOn:weakDevice]; };
+			return cell;
+		}
+		case BDAudioSectionStream: {
+			AVAudioSession *session = AVAudioSession.sharedInstance;
+			NSUInteger channels = session.currentRoute.outputs.firstObject.channels.count ?: (NSUInteger)session.outputNumberOfChannels;
+			BDStatsCell *cell = [collectionView dequeueReusableCellWithReuseIdentifier:@"stats" forIndexPath:indexPath];
+			[cell configureWithStats:@[
+				@[[NSString stringWithFormat:@"%.1f", session.sampleRate / 1000.0], @"kHz"],
+				@[channels == 2 ? @"Stereo" : @(channels).stringValue, @"Kênh"],
+				@[[NSString stringWithFormat:@"%.0f", session.outputLatency * 1000], @"ms trễ"],
+			]];
+			return cell;
+		}
 	}
+	return [UICollectionViewCell new];
 }
 
-- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-	if (indexPath.section == BDAudioSectionOffline) {
-		BluetoothDevice *device = self.offline[indexPath.row];
-		BDDeviceCell *cell = [tableView dequeueReusableCellWithIdentifier:@"device" forIndexPath:indexPath];
-		[cell configureWithDevice:device mode:BDDeviceCellModePlayHere];
-		__weak BluetoothDevice *weakDevice = device;
-		cell.onAction = ^{ if (weakDevice) [BDBluetooth.shared playOn:weakDevice]; };
-		return cell;
-	}
+#pragma mark - Delegate
 
-	UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"route"]
-		?: [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:@"route"];
-	cell.imageView.image = nil;
-	cell.accessoryType = UITableViewCellAccessoryNone;
-	cell.textLabel.textColor = UIColor.labelColor;
-	cell.detailTextLabel.text = nil;
-	cell.selectionStyle = UITableViewCellSelectionStyleNone;
-
-	if (indexPath.section == BDAudioSectionStream) {
-		NSArray *pair = self.stream[indexPath.row];
-		cell.textLabel.text = pair[0];
-		cell.detailTextLabel.text = pair[1];
-		return cell;
-	}
-	if (!self.routes.count) {
-		cell.textLabel.text = @"Đang lấy danh sách…";
-		cell.textLabel.textColor = UIColor.secondaryLabelColor;
-		return cell;
-	}
-	MPAVRoute *route = self.routes[indexPath.row];
-	BluetoothDevice *device = [self deviceForRoute:route];
-	NSString *symbol = route.isDeviceSpeakerRoute ? @"iphone" : device ? [BDDeviceKind kindForDevice:device].symbol : @"speaker.wave.2.fill";
-	cell.imageView.image = BDSymbol(symbol, 20, UIFontWeightRegular);
-	cell.imageView.tintColor = route.isPicked ? self.view.tintColor : UIColor.secondaryLabelColor;
-	cell.textLabel.text = route.routeName;
-	NSInteger battery = device ? BDBatteryPercent(device) : -1;
-	if (battery >= 0) cell.detailTextLabel.text = [NSString stringWithFormat:@"pin %ld%%", (long)battery];
-	cell.accessoryType = route.isPicked ? UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryNone;
-	cell.selectionStyle = UITableViewCellSelectionStyleDefault;
-	return cell;
-}
-
-- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
-	[tableView deselectRowAtIndexPath:indexPath animated:YES];
-	if (indexPath.section == BDAudioSectionRoutes && indexPath.row < (NSInteger)self.routes.count) {
-		MPAVRoute *route = self.routes[indexPath.row];
-		if (!route.isPicked) [BDBluetooth.shared pickRoute:route];
-	} else if (indexPath.section == BDAudioSectionOffline) {
-		[BDBluetooth.shared playOn:self.offline[indexPath.row]];
+- (void)collectionView:(UICollectionView *)collectionView didSelectItemAtIndexPath:(NSIndexPath *)indexPath {
+	switch ([self kindAt:indexPath.section]) {
+		case BDAudioSectionRoutes:
+			if (indexPath.item < (NSInteger)self.routes.count && !self.routes[indexPath.item].isPicked) {
+				[BDBluetooth.shared pickRoute:self.routes[indexPath.item]];
+			}
+			break;
+		case BDAudioSectionOffline:
+			[BDBluetooth.shared playOn:self.offline[indexPath.item]];
+			break;
+		case BDAudioSectionStream:
+			break;
 	}
 }
 

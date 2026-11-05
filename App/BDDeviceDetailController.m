@@ -1,8 +1,45 @@
 #import "BDDeviceDetailController.h"
 #import "BDBluetooth.h"
+#import "BDCards.h"
 #import "BDDeviceStyle.h"
 #import "BDDevicesController.h"
 #import <AVFoundation/AVFoundation.h>
+
+static UIColor *BDDetailShade(UIColor *color, CGFloat brightness, CGFloat saturation) {
+	CGFloat h = 0, s = 0, b = 0, a = 1;
+	if (![color getHue:&h saturation:&s brightness:&b alpha:&a]) return color;
+	return [UIColor colorWithHue:h saturation:MIN(1, s * saturation) brightness:MIN(1, b * brightness) alpha:a];
+}
+
+@interface BDGradientView : UIView
+@property (nonatomic, readonly) CAGradientLayer *gradientLayer;
+@end
+
+@implementation BDGradientView
++ (Class)layerClass {
+	return CAGradientLayer.class;
+}
+- (CAGradientLayer *)gradientLayer {
+	CAGradientLayer *layer = (CAGradientLayer *)self.layer;
+	layer.startPoint = CGPointMake(0, 0);
+	layer.endPoint = CGPointMake(1, 1);
+	return layer;
+}
+@end
+
+// Label with horizontal padding, used as the status pill.
+@interface BDPillLabel : UILabel
+@end
+
+@implementation BDPillLabel
+- (CGSize)intrinsicContentSize {
+	CGSize size = [super intrinsicContentSize];
+	return CGSizeMake(size.width + 24, size.height);
+}
+- (void)drawTextInRect:(CGRect)rect {
+	[super drawTextInRect:UIEdgeInsetsInsetRect(rect, UIEdgeInsetsMake(0, 12, 0, 12))];
+}
+@end
 
 @interface BDDetailRow : NSObject
 @property (nonatomic, copy) NSString *title;
@@ -28,9 +65,13 @@
 @property (nonatomic, copy) NSString *address;
 @property (nonatomic, strong) BluetoothDevice *device;
 @property (nonatomic, copy) NSArray<BDDetailSection *> *sections;
+@property (nonatomic, strong) BDGradientView *card;
 @property (nonatomic, strong) BDDeviceIconView *iconView;
 @property (nonatomic, strong) UILabel *nameLabel;
-@property (nonatomic, strong) UILabel *kindLabel;
+@property (nonatomic, strong) BDPillLabel *kindLabel;
+@property (nonatomic, strong) BDRoundAction *connectAction;
+@property (nonatomic, strong) BDRoundAction *playAction;
+@property (nonatomic, strong) BDRoundAction *forgetAction;
 @end
 
 @implementation BDDeviceDetailController
@@ -52,37 +93,83 @@
 	[self reload];
 }
 
+// Gradient card on top (avatar, name, status pill) and a row of round actions under it.
 - (void)buildHeader {
-	UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 0, 190)];
+	UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 0, 340)];
+
+	self.card = [BDGradientView new];
+	self.card.layer.cornerRadius = 26;
+	self.card.layer.cornerCurve = kCACornerCurveContinuous;
+	self.card.clipsToBounds = YES;
 	self.iconView = [[BDDeviceIconView alloc] initWithFrame:CGRectZero];
-	self.iconView.translatesAutoresizingMaskIntoConstraints = NO;
-
+	self.iconView.layer.borderWidth = 3;
+	self.iconView.layer.borderColor = [UIColor colorWithWhite:1 alpha:0.55].CGColor;
 	self.nameLabel = [UILabel new];
-	self.nameLabel.font = [UIFont systemFontOfSize:24 weight:UIFontWeightBold];
+	self.nameLabel.font = [UIFont systemFontOfSize:26 weight:UIFontWeightBold];
+	self.nameLabel.textColor = UIColor.whiteColor;
 	self.nameLabel.textAlignment = NSTextAlignmentCenter;
-	self.nameLabel.translatesAutoresizingMaskIntoConstraints = NO;
-	self.kindLabel = [UILabel new];
-	self.kindLabel.font = [UIFont systemFontOfSize:15];
-	self.kindLabel.textColor = UIColor.secondaryLabelColor;
+	self.nameLabel.adjustsFontSizeToFitWidth = YES;
+	self.kindLabel = [BDPillLabel new];
+	self.kindLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
 	self.kindLabel.textAlignment = NSTextAlignmentCenter;
-	self.kindLabel.translatesAutoresizingMaskIntoConstraints = NO;
+	self.kindLabel.textColor = UIColor.whiteColor;
+	self.kindLabel.backgroundColor = [UIColor colorWithWhite:1 alpha:0.22];
+	self.kindLabel.layer.cornerRadius = 13;
+	self.kindLabel.clipsToBounds = YES;
 
-	[header addSubview:self.iconView];
-	[header addSubview:self.nameLabel];
-	[header addSubview:self.kindLabel];
+	self.connectAction = [BDRoundAction new];
+	self.playAction = [BDRoundAction new];
+	self.forgetAction = [BDRoundAction new];
+	[self.connectAction addTarget:self action:@selector(toggleConnection) forControlEvents:UIControlEventTouchUpInside];
+	[self.playAction addTarget:self action:@selector(playHere) forControlEvents:UIControlEventTouchUpInside];
+	[self.forgetAction addTarget:self action:@selector(forget) forControlEvents:UIControlEventTouchUpInside];
+	UIStackView *actions = [[UIStackView alloc] initWithArrangedSubviews:@[self.connectAction, self.playAction, self.forgetAction]];
+	actions.distribution = UIStackViewDistributionFillEqually;
+
+	for (UIView *view in @[self.card, actions]) {
+		view.translatesAutoresizingMaskIntoConstraints = NO;
+		[header addSubview:view];
+	}
+	for (UIView *view in @[self.iconView, self.nameLabel, self.kindLabel]) {
+		view.translatesAutoresizingMaskIntoConstraints = NO;
+		[self.card addSubview:view];
+	}
 	[NSLayoutConstraint activateConstraints:@[
-		[self.iconView.topAnchor constraintEqualToAnchor:header.topAnchor constant:12],
-		[self.iconView.centerXAnchor constraintEqualToAnchor:header.centerXAnchor],
-		[self.iconView.widthAnchor constraintEqualToConstant:100],
-		[self.iconView.heightAnchor constraintEqualToConstant:100],
+		[self.card.topAnchor constraintEqualToAnchor:header.topAnchor constant:8],
+		[self.card.leadingAnchor constraintEqualToAnchor:header.leadingAnchor constant:16],
+		[self.card.trailingAnchor constraintEqualToAnchor:header.trailingAnchor constant:-16],
+		[self.card.heightAnchor constraintEqualToConstant:216],
+		[self.iconView.topAnchor constraintEqualToAnchor:self.card.topAnchor constant:24],
+		[self.iconView.centerXAnchor constraintEqualToAnchor:self.card.centerXAnchor],
+		[self.iconView.widthAnchor constraintEqualToConstant:92],
+		[self.iconView.heightAnchor constraintEqualToConstant:92],
 		[self.nameLabel.topAnchor constraintEqualToAnchor:self.iconView.bottomAnchor constant:12],
-		[self.nameLabel.leadingAnchor constraintEqualToAnchor:header.leadingAnchor constant:20],
-		[self.nameLabel.trailingAnchor constraintEqualToAnchor:header.trailingAnchor constant:-20],
-		[self.kindLabel.topAnchor constraintEqualToAnchor:self.nameLabel.bottomAnchor constant:2],
-		[self.kindLabel.leadingAnchor constraintEqualToAnchor:header.leadingAnchor constant:20],
-		[self.kindLabel.trailingAnchor constraintEqualToAnchor:header.trailingAnchor constant:-20],
+		[self.nameLabel.leadingAnchor constraintEqualToAnchor:self.card.leadingAnchor constant:20],
+		[self.nameLabel.trailingAnchor constraintEqualToAnchor:self.card.trailingAnchor constant:-20],
+		[self.kindLabel.topAnchor constraintEqualToAnchor:self.nameLabel.bottomAnchor constant:8],
+		[self.kindLabel.centerXAnchor constraintEqualToAnchor:self.card.centerXAnchor],
+		[self.kindLabel.heightAnchor constraintEqualToConstant:26],
+		[actions.topAnchor constraintEqualToAnchor:self.card.bottomAnchor constant:18],
+		[actions.leadingAnchor constraintEqualToAnchor:header.leadingAnchor constant:28],
+		[actions.trailingAnchor constraintEqualToAnchor:header.trailingAnchor constant:-28],
 	]];
 	self.tableView.tableHeaderView = header;
+}
+
+- (void)toggleConnection {
+	BluetoothDevice *device = self.device;
+	if (!device) return;
+	if (device.connected) [BDBluetooth.shared disconnect:device];
+	else [BDBluetooth.shared connect:device];
+}
+
+- (void)playHere {
+	if (self.device && ![BDBluetooth.shared isPlayingOn:self.device]) [BDBluetooth.shared playOn:self.device];
+}
+
+- (void)forget {
+	__weak typeof(self) weakSelf = self;
+	if (self.device) BDPresentForget(self, self.device, ^{ [weakSelf.navigationController popViewControllerAnimated:YES]; });
 }
 
 - (BluetoothDevice *)currentDevice {
@@ -127,28 +214,23 @@
 	BDBluetooth *bt = BDBluetooth.shared;
 	BDDeviceKind *kind = [BDDeviceKind kindForDevice:device];
 	self.title = device.name;
-	[self.iconView configureWithDevice:device];
+	self.card.gradientLayer.colors = @[(id)BDDetailShade(kind.color, 1.08, 0.85).CGColor, (id)BDDetailShade(kind.color, 0.62, 1.15).CGColor];
+	[self.iconView configureWithKind:kind];
 	self.nameLabel.text = device.name;
-	BOOL busy = [bt isConnecting:device] || [bt isWaitingToPlayOn:device];
-	NSString *state = busy ? @"Đang kết nối…" : device.connected ? ([bt isPlayingOn:device] ? @"Đang phát" : @"Đã kết nối") : @"Chưa kết nối";
+	BOOL connecting = [bt isConnecting:device];
+	BOOL waiting = [bt isWaitingToPlayOn:device];
+	BOOL playing = [bt isPlayingOn:device];
+	NSString *state = connecting || waiting ? @"Đang kết nối…" : device.connected ? (playing ? @"Đang phát" : @"Đã kết nối") : @"Chưa kết nối";
 	self.kindLabel.text = [NSString stringWithFormat:@"%@ · %@", kind.name, state];
 
-	NSMutableArray *sections = [NSMutableArray array];
-	__weak typeof(self) weakSelf = self;
+	if (device.connected) [self.connectAction configureWithSymbol:@"xmark" title:@"Ngắt" tint:UIColor.systemRedColor busy:NO];
+	else [self.connectAction configureWithSymbol:@"link" title:@"Kết nối" tint:UIColor.systemBlueColor busy:connecting];
+	self.playAction.hidden = !BDDeviceSupports(device, BDServiceA2DP);
+	if (playing) [self.playAction configureWithSymbol:@"checkmark" title:@"Đang phát" tint:UIColor.systemGreenColor busy:NO];
+	else [self.playAction configureWithSymbol:@"hifispeaker.2.fill" title:@"Phát ra đây" tint:UIColor.systemBlueColor busy:waiting];
+	[self.forgetAction configureWithSymbol:@"trash" title:@"Quên" tint:UIColor.systemRedColor busy:[bt isForgetting:device]];
 
-	BDDetailSection *actions = [self section:nil];
-	if (device.connected) {
-		[self add:actions action:@"Ngắt kết nối" tint:UIColor.systemRedColor block:^{ [bt disconnect:weakSelf.device]; }];
-	} else {
-		[self add:actions action:busy ? @"Đang kết nối…" : @"Kết nối" tint:self.view.tintColor block:^{ [bt connect:weakSelf.device]; }];
-	}
-	if (BDDeviceSupports(device, BDServiceA2DP)) {
-		BOOL playing = [bt isPlayingOn:device];
-		BDDetailRow *play = [self add:actions action:playing ? @"Đang phát âm thanh ra thiết bị này" : @"Phát âm thanh ra thiết bị này"
-			tint:playing ? UIColor.secondaryLabelColor : self.view.tintColor block:^{ [bt playOn:weakSelf.device]; }];
-		play.checked = playing;
-	}
-	[sections addObject:actions];
+	NSMutableArray *sections = [NSMutableArray array];
 
 	BDDetailSection *info = [self section:@"Thông số"];
 	[self add:info title:@"Tên" value:device.name];
@@ -178,11 +260,6 @@
 		[sections addObject:audio];
 	}
 
-	BDDetailSection *manage = [self section:nil];
-	[self add:manage action:@"Quên thiết bị này" tint:UIColor.systemRedColor block:^{
-		BDPresentForget(weakSelf, weakSelf.device, ^{ [weakSelf.navigationController popViewControllerAnimated:YES]; });
-	}];
-	[sections addObject:manage];
 
 	self.sections = sections;
 	[self.tableView reloadData];

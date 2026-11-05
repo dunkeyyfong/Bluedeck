@@ -6,6 +6,7 @@
 @property (nonatomic, copy) NSString *name;   // "Loa", "Tai nghe", …
 @property (nonatomic, copy) NSString *symbol; // SF Symbol
 @property (nonatomic, strong) UIColor *color;
++ (instancetype)kindWithName:(NSString *)name symbol:(NSString *)symbol color:(UIColor *)color;
 + (instancetype)kindForDevice:(BluetoothDevice *)device;
 // For devices known only by their Class of Device (scan results relayed from Settings).
 + (instancetype)kindForMajor:(unsigned int)majorClass minor:(unsigned int)minorClass;

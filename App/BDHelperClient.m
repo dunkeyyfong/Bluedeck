@@ -131,6 +131,10 @@ NSString *BDHelperStatusText(BDHelperStatus status) {
 	}];
 }
 
+- (void)checkAlive:(void (^)(BOOL alive))completion {
+	[self ensureHelper:NO completion:completion];
+}
+
 #pragma mark - Requests
 
 static void BDSetState(const char *name, uint64_t state) {

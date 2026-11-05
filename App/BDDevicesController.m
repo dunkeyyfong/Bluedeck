@@ -1,11 +1,14 @@
 #import "BDDevicesController.h"
 #import "BDBluetooth.h"
-#import "BDDeviceCell.h"
+#import "BDCards.h"
 #import "BDDeviceDetailController.h"
 #import "BDScanController.h"
+#import "BDSettingsController.h"
+#import <AVFoundation/AVFoundation.h>
 
 typedef NS_ENUM(NSInteger, BDListSection) {
 	BDListSectionPower,
+	BDListSectionHero,
 	BDListSectionConnected,
 	BDListSectionOther,
 	BDListSectionAdd,
@@ -25,29 +28,56 @@ void BDPresentForget(UIViewController *host, id deviceObj, void (^done)(void)) {
 	[host presentViewController:sheet animated:YES completion:nil];
 }
 
+UIBarButtonItem *BDSettingsButton(UIViewController *host) {
+	__weak UIViewController *weakHost = host;
+	UIAction *open = [UIAction actionWithTitle:@"Cài đặt" image:nil identifier:nil handler:^(UIAction *action) {
+		[weakHost.navigationController pushViewController:[BDSettingsController new] animated:YES];
+	}];
+	return [[UIBarButtonItem alloc] initWithTitle:nil image:[UIImage systemImageNamed:@"gearshape"] primaryAction:open menu:nil];
+}
+
 @interface BDDevicesController ()
+@property (nonatomic, copy) NSArray<NSNumber *> *sectionKinds;
+@property (nonatomic, strong) BluetoothDevice *hero;
 @property (nonatomic, copy) NSArray<BluetoothDevice *> *connected;
 @property (nonatomic, copy) NSArray<BluetoothDevice *> *others;
-@property (nonatomic, strong) UISwitch *powerSwitch;
 @end
 
 @implementation BDDevicesController
 
 - (instancetype)init {
-	if ((self = [super initWithStyle:UITableViewStyleInsetGrouped])) {
+	__block __weak BDDevicesController *weakSelf = nil;
+	UICollectionViewLayout *layout = BDCardLayout(^BDSectionStyle(NSInteger section) {
+		BDListSection kind = [weakSelf kindAt:section];
+		return kind == BDListSectionConnected || kind == BDListSectionOther ? BDSectionStyleGrid : BDSectionStyleFull;
+	}, ^BOOL(NSInteger section) {
+		BDListSection kind = [weakSelf kindAt:section];
+		return kind == BDListSectionConnected || kind == BDListSectionOther;
+	});
+	if ((self = [super initWithCollectionViewLayout:layout])) {
+		weakSelf = self;
 		self.title = @"Bluetooth";
 		self.tabBarItem = [[UITabBarItem alloc] initWithTitle:@"Thiết bị" image:[UIImage systemImageNamed:@"antenna.radiowaves.left.and.right"] tag:0];
+		_sectionKinds = @[@(BDListSectionPower)];
 	}
 	return self;
 }
 
+- (BDListSection)kindAt:(NSInteger)section {
+	return section < (NSInteger)self.sectionKinds.count ? (BDListSection)self.sectionKinds[section].integerValue : BDListSectionPower;
+}
+
 - (void)viewDidLoad {
 	[super viewDidLoad];
-	self.tableView.rowHeight = UITableViewAutomaticDimension;
-	self.tableView.estimatedRowHeight = 68;
-	[self.tableView registerClass:BDDeviceCell.class forCellReuseIdentifier:@"device"];
-	self.powerSwitch = [UISwitch new];
-	[self.powerSwitch addTarget:self action:@selector(powerChanged:) forControlEvents:UIControlEventValueChanged];
+	self.collectionView.backgroundColor = UIColor.systemGroupedBackgroundColor;
+	self.collectionView.alwaysBounceVertical = YES;
+	self.collectionView.contentInset = UIEdgeInsetsMake(8, 0, 24, 0);
+	[self.collectionView registerClass:BDPowerCell.class forCellWithReuseIdentifier:@"power"];
+	[self.collectionView registerClass:BDHeroCell.class forCellWithReuseIdentifier:@"hero"];
+	[self.collectionView registerClass:BDTileCell.class forCellWithReuseIdentifier:@"tile"];
+	[self.collectionView registerClass:BDActionCell.class forCellWithReuseIdentifier:@"action"];
+	[self.collectionView registerClass:BDSectionHeaderView.class forSupplementaryViewOfKind:UICollectionElementKindSectionHeader withReuseIdentifier:@"header"];
+	self.navigationItem.rightBarButtonItem = BDSettingsButton(self);
 	[NSNotificationCenter.defaultCenter addObserver:self selector:@selector(reload) name:BDBluetoothDidChangeNotification object:nil];
 	[self reload];
 }
@@ -59,110 +89,134 @@ void BDPresentForget(UIViewController *host, id deviceObj, void (^done)(void)) {
 }
 
 - (void)reload {
+	BDBluetooth *bt = BDBluetooth.shared;
+	BluetoothDevice *hero = nil;
 	NSMutableArray *connected = [NSMutableArray array], *others = [NSMutableArray array];
-	for (BluetoothDevice *device in BDBluetooth.shared.pairedDevices) {
-		[(device.connected ? connected : others) addObject:device];
+	for (BluetoothDevice *device in bt.pairedDevices) {
+		if (device.connected && !hero && [bt isPlayingOn:device]) hero = device;
+		else [(device.connected ? connected : others) addObject:device];
 	}
+	self.hero = hero;
 	self.connected = connected;
 	self.others = others;
-	self.powerSwitch.on = BDBluetooth.shared.powered;
-	[self.tableView reloadData];
-}
 
-- (void)powerChanged:(UISwitch *)sender {
-	[BDBluetooth.shared setPowered:sender.on];
-}
-
-- (BOOL)showsDevices {
-	return BDBluetooth.shared.available && BDBluetooth.shared.powered;
-}
-
-#pragma mark - Table
-
-- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
-	return self.showsDevices ? 4 : 1;
-}
-
-- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-	switch (section) {
-		case BDListSectionPower: return 1;
-		case BDListSectionConnected: return MAX(self.connected.count, (NSUInteger)1);
-		case BDListSectionOther: return MAX(self.others.count, (NSUInteger)1);
-		default: return 1;
+	NSMutableArray *kinds = [NSMutableArray arrayWithObject:@(BDListSectionPower)];
+	if (bt.available && bt.powered) {
+		if (hero) [kinds addObject:@(BDListSectionHero)];
+		if (connected.count) [kinds addObject:@(BDListSectionConnected)];
+		if (others.count) [kinds addObject:@(BDListSectionOther)];
+		[kinds addObject:@(BDListSectionAdd)];
 	}
+	self.sectionKinds = kinds;
+	[self.collectionView reloadData];
 }
 
-- (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
-	switch (section) {
-		case BDListSectionConnected: return @"Đang kết nối";
-		case BDListSectionOther: return @"Thiết bị của tôi";
-		default: return nil;
-	}
-}
-
-- (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
-	if (section == BDListSectionPower) {
-		if (!BDBluetooth.shared.available) return @"Đang kết nối tới dịch vụ Bluetooth của iOS…";
-		NSString *address = BDBluetooth.shared.localAddress;
-		return address ? [NSString stringWithFormat:@"Địa chỉ iPhone: %@", address] : nil;
-	}
-	if (section == BDListSectionOther && self.others.count) return @"Vuốt sang trái để quên thiết bị.";
-	return nil;
+- (NSArray<BluetoothDevice *> *)devicesIn:(BDListSection)kind {
+	return kind == BDListSectionConnected ? self.connected : kind == BDListSectionOther ? self.others : @[];
 }
 
 - (BluetoothDevice *)deviceAt:(NSIndexPath *)indexPath {
-	if (indexPath.section == BDListSectionConnected && indexPath.row < (NSInteger)self.connected.count) return self.connected[indexPath.row];
-	if (indexPath.section == BDListSectionOther && indexPath.row < (NSInteger)self.others.count) return self.others[indexPath.row];
-	return nil;
+	BDListSection kind = [self kindAt:indexPath.section];
+	if (kind == BDListSectionHero) return self.hero;
+	NSArray *devices = [self devicesIn:kind];
+	return indexPath.item < (NSInteger)devices.count ? devices[indexPath.item] : nil;
 }
 
-- (UITableViewCell *)plainCell:(NSString *)text color:(UIColor *)color {
-	UITableViewCell *cell = [self.tableView dequeueReusableCellWithIdentifier:@"plain"]
-		?: [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"plain"];
-	cell.textLabel.text = text;
-	cell.textLabel.textColor = color;
-	cell.imageView.image = nil;
-	cell.accessoryView = nil;
-	cell.selectionStyle = UITableViewCellSelectionStyleNone;
-	return cell;
+#pragma mark - Data source
+
+- (NSInteger)numberOfSectionsInCollectionView:(UICollectionView *)collectionView {
+	return self.sectionKinds.count;
 }
 
-- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-	if (indexPath.section == BDListSectionPower) {
-		UITableViewCell *cell = [self plainCell:@"Bluetooth" color:UIColor.labelColor];
-		cell.textLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold];
-		cell.imageView.image = [UIImage systemImageNamed:@"antenna.radiowaves.left.and.right"];
-		cell.imageView.tintColor = UIColor.systemBlueColor;
-		cell.accessoryView = self.powerSwitch;
-		self.powerSwitch.enabled = BDBluetooth.shared.available;
-		return cell;
-	}
-	if (indexPath.section == BDListSectionAdd) {
-		UITableViewCell *cell = [self plainCell:@"Thêm thiết bị mới" color:self.view.tintColor];
-		cell.imageView.image = [UIImage systemImageNamed:@"plus.circle.fill"];
-		cell.selectionStyle = UITableViewCellSelectionStyleDefault;
-		return cell;
-	}
-	BluetoothDevice *device = [self deviceAt:indexPath];
-	if (!device) {
-		NSString *text = indexPath.section == BDListSectionConnected ? @"Chưa có thiết bị nào đang kết nối" : @"Không có thiết bị nào khác";
-		return [self plainCell:text color:UIColor.secondaryLabelColor];
-	}
-	BDDeviceCell *cell = [tableView dequeueReusableCellWithIdentifier:@"device" forIndexPath:indexPath];
-	[cell configureWithDevice:device mode:BDDeviceCellModePaired];
-	__weak BluetoothDevice *weakDevice = device;
-	cell.onAction = ^{
-		BluetoothDevice *d = weakDevice;
-		if (!d) return;
-		if (d.connected) [BDBluetooth.shared disconnect:d];
-		else [BDBluetooth.shared connect:d];
-	};
-	return cell;
+- (NSInteger)collectionView:(UICollectionView *)collectionView numberOfItemsInSection:(NSInteger)section {
+	BDListSection kind = [self kindAt:section];
+	if (kind == BDListSectionConnected || kind == BDListSectionOther) return [self devicesIn:kind].count;
+	return 1;
 }
 
-- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
-	[tableView deselectRowAtIndexPath:indexPath animated:YES];
-	if (indexPath.section == BDListSectionAdd) {
+- (UICollectionReusableView *)collectionView:(UICollectionView *)collectionView viewForSupplementaryElementOfKind:(NSString *)kind atIndexPath:(NSIndexPath *)indexPath {
+	BDSectionHeaderView *header = [collectionView dequeueReusableSupplementaryViewOfKind:kind withReuseIdentifier:@"header" forIndexPath:indexPath];
+	header.label.text = [self kindAt:indexPath.section] == BDListSectionConnected ? @"Đang kết nối" : @"Thiết bị của tôi";
+	return header;
+}
+
+- (NSString *)statusFor:(BluetoothDevice *)device {
+	BDBluetooth *bt = BDBluetooth.shared;
+	NSMutableArray *parts = [NSMutableArray array];
+	if ([bt isForgetting:device]) [parts addObject:@"Đang quên…"];
+	else if ([bt isConnecting:device] || [bt isWaitingToPlayOn:device]) [parts addObject:@"Đang kết nối…"];
+	else [parts addObject:device.connected ? @"Đã kết nối" : @"Chưa kết nối"];
+	NSInteger battery = BDBatteryPercent(device);
+	if (battery >= 0) [parts addObject:[NSString stringWithFormat:@"%ld%%", (long)battery]];
+	return [parts componentsJoinedByString:@" · "];
+}
+
+- (NSString *)streamDetail:(BDDeviceKind *)kind {
+	AVAudioSession *session = AVAudioSession.sharedInstance;
+	NSUInteger channels = session.currentRoute.outputs.firstObject.channels.count;
+	return [NSString stringWithFormat:@"%@ · %.1f kHz · %@", kind.name, session.sampleRate / 1000.0,
+		channels == 2 ? @"Stereo" : channels == 1 ? @"Mono" : [NSString stringWithFormat:@"%lu kênh", (unsigned long)channels]];
+}
+
+- (UICollectionViewCell *)collectionView:(UICollectionView *)collectionView cellForItemAtIndexPath:(NSIndexPath *)indexPath {
+	BDBluetooth *bt = BDBluetooth.shared;
+	__weak typeof(self) weakSelf = self;
+	switch ([self kindAt:indexPath.section]) {
+		case BDListSectionPower: {
+			BDPowerCell *cell = [collectionView dequeueReusableCellWithReuseIdentifier:@"power" forIndexPath:indexPath];
+			NSString *subtitle;
+			if (!bt.available) subtitle = @"Đang kết nối tới dịch vụ Bluetooth…";
+			else if (!bt.powered) subtitle = @"Đang tắt";
+			else {
+				NSUInteger count = self.connected.count + (self.hero ? 1 : 0);
+				subtitle = count ? [NSString stringWithFormat:@"%lu thiết bị đang kết nối", (unsigned long)count] : @"Đang bật · chưa kết nối thiết bị nào";
+			}
+			[cell configureWithTitle:@"Bluetooth" subtitle:subtitle on:bt.powered enabled:bt.available];
+			cell.onToggle = ^(BOOL on) { [BDBluetooth.shared setPowered:on]; };
+			return cell;
+		}
+		case BDListSectionHero: {
+			BDHeroCell *cell = [collectionView dequeueReusableCellWithReuseIdentifier:@"hero" forIndexPath:indexPath];
+			BluetoothDevice *device = self.hero;
+			BDDeviceKind *kind = [BDDeviceKind kindForDevice:device];
+			[cell configureWithKind:kind overline:@"Đang phát" title:device.name detail:[self streamDetail:kind]
+				primary:@"Chuyển loa" primarySymbol:@"hifispeaker.2.fill" secondary:@"Ngắt" secondarySymbol:@"xmark"];
+			cell.onPrimary = ^{ weakSelf.tabBarController.selectedIndex = 1; };
+			cell.onSecondary = ^{ if (weakSelf.hero) [BDBluetooth.shared disconnect:weakSelf.hero]; };
+			return cell;
+		}
+		case BDListSectionConnected:
+		case BDListSectionOther: {
+			BDTileCell *cell = [collectionView dequeueReusableCellWithReuseIdentifier:@"tile" forIndexPath:indexPath];
+			BluetoothDevice *device = [self deviceAt:indexPath];
+			BOOL busy = [bt isForgetting:device] || [bt isConnecting:device] || [bt isWaitingToPlayOn:device];
+			[cell configureWithKind:[BDDeviceKind kindForDevice:device] title:device.name ?: @"(không tên)" subtitle:[self statusFor:device]
+				dotColor:device.connected ? UIColor.systemGreenColor : nil selected:NO busy:busy
+				accessorySymbol:device.connected ? @"xmark.circle.fill" : @"link.circle.fill"
+				accessoryTint:device.connected ? UIColor.tertiaryLabelColor : UIColor.systemBlueColor];
+			__weak BluetoothDevice *weakDevice = device;
+			cell.onAccessory = ^{
+				BluetoothDevice *d = weakDevice;
+				if (!d) return;
+				if (d.connected) [BDBluetooth.shared disconnect:d];
+				else [BDBluetooth.shared connect:d];
+			};
+			return cell;
+		}
+		case BDListSectionAdd: {
+			BDActionCell *cell = [collectionView dequeueReusableCellWithReuseIdentifier:@"action" forIndexPath:indexPath];
+			[cell configureWithSymbol:@"plus.circle.fill" title:@"Thêm thiết bị mới" tint:self.view.tintColor];
+			return cell;
+		}
+	}
+	return [UICollectionViewCell new];
+}
+
+#pragma mark - Delegate
+
+- (void)collectionView:(UICollectionView *)collectionView didSelectItemAtIndexPath:(NSIndexPath *)indexPath {
+	BDListSection kind = [self kindAt:indexPath.section];
+	if (kind == BDListSectionAdd) {
 		[self.navigationController pushViewController:[BDScanController new] animated:YES];
 		return;
 	}
@@ -170,15 +224,33 @@ void BDPresentForget(UIViewController *host, id deviceObj, void (^done)(void)) {
 	if (device) [self.navigationController pushViewController:[[BDDeviceDetailController alloc] initWithAddress:device.address] animated:YES];
 }
 
-- (UISwipeActionsConfiguration *)tableView:(UITableView *)tableView trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath {
+- (UIContextMenuConfiguration *)collectionView:(UICollectionView *)collectionView contextMenuConfigurationForItemAtIndexPath:(NSIndexPath *)indexPath point:(CGPoint)point {
 	BluetoothDevice *device = [self deviceAt:indexPath];
 	if (!device) return nil;
-	UIContextualAction *forget = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleDestructive title:@"Quên"
-		handler:^(UIContextualAction *action, UIView *view, void (^completion)(BOOL)) {
-			BDPresentForget(self, device, nil);
-			completion(YES);
+	__weak typeof(self) weakSelf = self;
+	return [UIContextMenuConfiguration configurationWithIdentifier:nil previewProvider:nil actionProvider:^UIMenu *(NSArray *suggested) {
+		NSMutableArray *actions = [NSMutableArray array];
+		if (device.connected) {
+			[actions addObject:[UIAction actionWithTitle:@"Ngắt kết nối" image:[UIImage systemImageNamed:@"xmark.circle"] identifier:nil handler:^(UIAction *a) {
+				[BDBluetooth.shared disconnect:device];
+			}]];
+		} else {
+			[actions addObject:[UIAction actionWithTitle:@"Kết nối" image:[UIImage systemImageNamed:@"link"] identifier:nil handler:^(UIAction *a) {
+				[BDBluetooth.shared connect:device];
+			}]];
+		}
+		if (BDDeviceSupports(device, BDServiceA2DP) && ![BDBluetooth.shared isPlayingOn:device]) {
+			[actions addObject:[UIAction actionWithTitle:@"Phát âm thanh ra đây" image:[UIImage systemImageNamed:@"hifispeaker.2"] identifier:nil handler:^(UIAction *a) {
+				[BDBluetooth.shared playOn:device];
+			}]];
+		}
+		UIAction *forget = [UIAction actionWithTitle:@"Quên thiết bị" image:[UIImage systemImageNamed:@"trash"] identifier:nil handler:^(UIAction *a) {
+			BDPresentForget(weakSelf, device, nil);
 		}];
-	return [UISwipeActionsConfiguration configurationWithActions:@[forget]];
+		forget.attributes = UIMenuElementAttributesDestructive;
+		[actions addObject:[UIMenu menuWithTitle:@"" image:nil identifier:nil options:UIMenuOptionsDisplayInline children:@[forget]]];
+		return [UIMenu menuWithTitle:device.name ?: @"" children:actions];
+	}];
 }
 
 @end

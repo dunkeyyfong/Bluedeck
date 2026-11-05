@@ -16,7 +16,7 @@ UIImage *BDSymbol(NSString *name, CGFloat pointSize, UIFontWeight weight) {
 
 @implementation BDDeviceKind
 
-+ (instancetype)name:(NSString *)name symbol:(NSString *)symbol color:(UIColor *)color {
++ (instancetype)kindWithName:(NSString *)name symbol:(NSString *)symbol color:(UIColor *)color {
 	BDDeviceKind *kind = [self new];
 	kind.name = name;
 	kind.symbol = symbol;
@@ -27,9 +27,9 @@ UIImage *BDSymbol(NSString *name, CGFloat pointSize, UIFontWeight weight) {
 + (instancetype)appleKindForDevice:(BluetoothDevice *)device {
 	unsigned int pid = [device respondsToSelector:@selector(productId)] ? device.productId : 0;
 	switch (pid) {
-		case 0x200e: case 0x2014: case 0x2024: return [self name:@"AirPods Pro" symbol:@"airpodspro" color:UIColor.systemGrayColor];
-		case 0x200a: case 0x201f: return [self name:@"AirPods Max" symbol:@"airpodsmax" color:UIColor.systemGrayColor];
-		case 0x2002: case 0x200f: case 0x2013: case 0x2019: case 0x201b: return [self name:@"AirPods" symbol:@"airpods" color:UIColor.systemGrayColor];
+		case 0x200e: case 0x2014: case 0x2024: return [self kindWithName:@"AirPods Pro" symbol:@"airpodspro" color:UIColor.systemGrayColor];
+		case 0x200a: case 0x201f: return [self kindWithName:@"AirPods Max" symbol:@"airpodsmax" color:UIColor.systemGrayColor];
+		case 0x2002: case 0x200f: case 0x2013: case 0x2019: case 0x201b: return [self kindWithName:@"AirPods" symbol:@"airpods" color:UIColor.systemGrayColor];
 		default: return nil;
 	}
 }
@@ -47,31 +47,31 @@ UIImage *BDSymbol(NSString *name, CGFloat pointSize, UIFontWeight weight) {
 	unsigned int major = majorClass > 0x1f ? (majorClass >> 8) & 0x1f : majorClass;
 	unsigned int minor = (rawMinor >> 2) & 0x3f;
 	switch (major) {
-		case 1: return [self name:@"Máy tính" symbol:@"laptopcomputer" color:UIColor.systemBlueColor];
-		case 2: return [self name:@"Điện thoại" symbol:@"iphone" color:UIColor.systemBlueColor];
+		case 1: return [self kindWithName:@"Máy tính" symbol:@"laptopcomputer" color:UIColor.systemBlueColor];
+		case 2: return [self kindWithName:@"Điện thoại" symbol:@"iphone" color:UIColor.systemBlueColor];
 		case 4:
 			switch (minor) {
-				case 1: return [self name:@"Tai nghe nhét tai" symbol:@"airpods" color:UIColor.systemTealColor];
-				case 2: return [self name:@"Thiết bị rảnh tay" symbol:@"phone.connection" color:UIColor.systemTealColor];
-				case 4: return [self name:@"Micro" symbol:@"mic.fill" color:UIColor.systemRedColor];
-				case 5: return [self name:@"Loa" symbol:@"hifispeaker.fill" color:UIColor.systemOrangeColor];
-				case 6: return [self name:@"Tai nghe chụp" symbol:@"headphones" color:UIColor.systemIndigoColor];
-				case 7: return [self name:@"Máy nghe nhạc" symbol:@"music.note" color:UIColor.systemPinkColor];
-				case 8: return [self name:@"Âm thanh xe hơi" symbol:@"car.fill" color:UIColor.systemGreenColor];
-				case 10: return [self name:@"Dàn HiFi" symbol:@"hifispeaker.2.fill" color:UIColor.systemOrangeColor];
-				case 14: case 15: return [self name:@"Màn hình / TV" symbol:@"tv.fill" color:UIColor.systemPurpleColor];
-				default: return [self name:@"Thiết bị âm thanh" symbol:@"speaker.wave.2.fill" color:UIColor.systemOrangeColor];
+				case 1: return [self kindWithName:@"Tai nghe nhét tai" symbol:@"airpods" color:UIColor.systemTealColor];
+				case 2: return [self kindWithName:@"Thiết bị rảnh tay" symbol:@"phone.connection" color:UIColor.systemTealColor];
+				case 4: return [self kindWithName:@"Micro" symbol:@"mic.fill" color:UIColor.systemRedColor];
+				case 5: return [self kindWithName:@"Loa" symbol:@"hifispeaker.fill" color:UIColor.systemOrangeColor];
+				case 6: return [self kindWithName:@"Tai nghe chụp" symbol:@"headphones" color:UIColor.systemIndigoColor];
+				case 7: return [self kindWithName:@"Máy nghe nhạc" symbol:@"music.note" color:UIColor.systemPinkColor];
+				case 8: return [self kindWithName:@"Âm thanh xe hơi" symbol:@"car.fill" color:UIColor.systemGreenColor];
+				case 10: return [self kindWithName:@"Dàn HiFi" symbol:@"hifispeaker.2.fill" color:UIColor.systemOrangeColor];
+				case 14: case 15: return [self kindWithName:@"Màn hình / TV" symbol:@"tv.fill" color:UIColor.systemPurpleColor];
+				default: return [self kindWithName:@"Thiết bị âm thanh" symbol:@"speaker.wave.2.fill" color:UIColor.systemOrangeColor];
 			}
 		case 5:
-			if ((rawMinor & 0xc0) == 0x40) return [self name:@"Bàn phím" symbol:@"keyboard" color:UIColor.systemGrayColor];
-			if ((rawMinor & 0xc0) == 0x80) return [self name:@"Chuột" symbol:@"computermouse.fill" color:UIColor.systemGrayColor];
-			if ((rawMinor & 0x3c) == 0x08) return [self name:@"Tay cầm chơi game" symbol:@"gamecontroller.fill" color:UIColor.systemPurpleColor];
-			return [self name:@"Thiết bị ngoại vi" symbol:@"keyboard" color:UIColor.systemGrayColor];
-		case 6: return [self name:@"Máy in / camera" symbol:@"printer.fill" color:UIColor.systemGrayColor];
-		case 7: return [self name:@"Thiết bị đeo" symbol:@"applewatch" color:UIColor.systemPinkColor];
-		case 8: return [self name:@"Đồ chơi" symbol:@"gamecontroller.fill" color:UIColor.systemPurpleColor];
-		case 9: return [self name:@"Thiết bị sức khoẻ" symbol:@"heart.fill" color:UIColor.systemRedColor];
-		default: return [self name:@"Thiết bị Bluetooth" symbol:@"antenna.radiowaves.left.and.right" color:UIColor.systemBlueColor];
+			if ((rawMinor & 0xc0) == 0x40) return [self kindWithName:@"Bàn phím" symbol:@"keyboard" color:UIColor.systemGrayColor];
+			if ((rawMinor & 0xc0) == 0x80) return [self kindWithName:@"Chuột" symbol:@"computermouse.fill" color:UIColor.systemGrayColor];
+			if ((rawMinor & 0x3c) == 0x08) return [self kindWithName:@"Tay cầm chơi game" symbol:@"gamecontroller.fill" color:UIColor.systemPurpleColor];
+			return [self kindWithName:@"Thiết bị ngoại vi" symbol:@"keyboard" color:UIColor.systemGrayColor];
+		case 6: return [self kindWithName:@"Máy in / camera" symbol:@"printer.fill" color:UIColor.systemGrayColor];
+		case 7: return [self kindWithName:@"Thiết bị đeo" symbol:@"applewatch" color:UIColor.systemPinkColor];
+		case 8: return [self kindWithName:@"Đồ chơi" symbol:@"gamecontroller.fill" color:UIColor.systemPurpleColor];
+		case 9: return [self kindWithName:@"Thiết bị sức khoẻ" symbol:@"heart.fill" color:UIColor.systemRedColor];
+		default: return [self kindWithName:@"Thiết bị Bluetooth" symbol:@"antenna.radiowaves.left.and.right" color:UIColor.systemBlueColor];
 	}
 }
 
