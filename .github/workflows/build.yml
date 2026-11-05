@@ -7,6 +7,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write # create the GitHub Release on v* tags
+
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -53,3 +56,4 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: packages/*.deb
+          body_path: RELEASE_NOTES.md
