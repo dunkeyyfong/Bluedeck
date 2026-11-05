@@ -1,5 +1,6 @@
 #import "BDDiagController.h"
 #import "BDDump.h"
+#import "BDEntitlements.h"
 #import "BDExports.h"
 #import "BDLog.h"
 #import "BDPrivate.h"
@@ -9,7 +10,7 @@
 #import <objc/message.h>
 #import <sys/utsname.h>
 
-#define kBDVersion @"0.1.3"
+#define kBDVersion @"0.1.4"
 
 static NSArray<NSString *> *BDManagerGetters(void) {
 	return @[@"available", @"enabled", @"powered", @"powerState", @"bluetoothState", @"localAddress",
@@ -217,7 +218,7 @@ static NSArray<NSString *> *BDInspectedClasses(void) {
 	if (!self.started) return;
 	NSMutableArray *sections = [NSMutableArray array];
 	NSArray *builders = @[@"overviewSection", @"deviceSections", @"batterySection", @"routesSection",
-		@"audioSessionSection", @"bleSection", @"methodsSection", @"cSymbolsSection", @"eventsSection"];
+		@"audioSessionSection", @"bleSection", @"entitlementsSection", @"methodsSection", @"cSymbolsSection", @"eventsSection"];
 	for (NSString *builder in builders) {
 		__block id result = nil;
 		NSException *e = BDStep([@"dựng " stringByAppendingString:builder], ^{
@@ -429,6 +430,41 @@ static NSArray<NSString *> *BDInspectedClasses(void) {
 	NSArray<CBPeripheral *> *peripherals = [self.central retrieveConnectedPeripheralsWithServices:services];
 	for (CBPeripheral *p in peripherals) [s add:p.name ?: @"(không tên)" value:p.identifier.UUIDString];
 	if (!peripherals.count) [s add:@"(không có thiết bị BLE nào đang nối với dịch vụ 180F/180A/1812/180D/1800)" value:nil];
+	return s;
+}
+
+// Which entitlements bluetoothd asks for vs what Settings and Bluedeck carry — scanning,
+// pairing and unpairing are silently ignored for Bluedeck, connect/disconnect are not.
+- (BDSection *)entitlementsSection {
+	// Reading bluetoothd is a few MB; do it once per launch.
+	static BDSection *cached;
+	if (cached) return cached;
+	BDSection *s = [BDSection title:@"Quyền (entitlements)"];
+	cached = s;
+	NSArray *binaries = @[
+		@[@"Bluedeck", NSBundle.mainBundle.executablePath ?: @""],
+		@[@"Cài đặt (Preferences)", @"/Applications/Preferences.app/Preferences"],
+	];
+	for (NSArray *pair in binaries) {
+		NSString *error = nil;
+		NSDictionary *ents = BDEntitlementsOfBinary(pair[1], &error);
+		BDRow *row = [s add:pair[0] value:ents ? [NSString stringWithFormat:@"%lu quyền", (unsigned long)ents.count] : error];
+		if (ents.count) {
+			BDSection *list = [BDSection title:pair[1]];
+			for (NSString *key in [ents.allKeys sortedArrayUsingSelector:@selector(compare:)]) {
+				[list add:key value:BDDescribe(ents[key])];
+			}
+			row.detail = @[list];
+		}
+	}
+	NSString *error = nil;
+	NSArray *strings = BDEntitlementLikeStrings(@"/usr/sbin/bluetoothd", &error);
+	BDRow *row = [s add:@"Chuỗi quyền trong bluetoothd" value:strings ? [NSString stringWithFormat:@"%lu chuỗi", (unsigned long)strings.count] : error];
+	if (strings.count) {
+		BDSection *list = [BDSection title:@"/usr/sbin/bluetoothd"];
+		for (NSString *str in strings) [list add:str value:nil];
+		row.detail = @[list];
+	}
 	return s;
 }
 

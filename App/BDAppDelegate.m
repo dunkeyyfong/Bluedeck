@@ -3,6 +3,7 @@
 #import "BDBluetooth.h"
 #import "BDDevicesController.h"
 #import "BDDiagController.h"
+#import "BDEntitlements.h"
 
 @implementation BDAppDelegate
 
@@ -41,6 +42,9 @@
 	NSString *message = [NSString stringWithFormat:@"iOS vẫn giữ “%@” trong danh sách ghép đôi. Mở Cài đặt › Bluetooth xem thiết bị còn ở đó không.\n\nSự kiện gần nhất:\n%@",
 		note.userInfo[@"name"], note.userInfo[@"events"] ?: @"(không có)"];
 	UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Chưa quên được thiết bị" message:message preferredStyle:UIAlertControllerStyleAlert];
+	[alert addAction:[UIAlertAction actionWithTitle:@"Mở Cài đặt › Bluetooth" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+		BDOpenBluetoothSettings();
+	}]];
 	[alert addAction:[UIAlertAction actionWithTitle:@"Sao chép" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
 		UIPasteboard.generalPasteboard.string = message;
 	}]];

@@ -26,5 +26,7 @@
 	<true/>
 	<key>com.apple.coreaudio.allow-amr-decode</key>
 	<true/>
+	<key>com.apple.springboard.opensensitiveurl</key>
+	<true/>
 </dict>
 </plist>

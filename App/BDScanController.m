@@ -1,6 +1,7 @@
 #import "BDScanController.h"
 #import "BDBluetooth.h"
 #import "BDDeviceCell.h"
+#import "BDEntitlements.h"
 
 @interface BDScanController ()
 @property (nonatomic, copy) NSArray<BluetoothDevice *> *devices;
@@ -51,15 +52,20 @@
 	[self.tableView reloadData];
 }
 
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
+	return 2;
+}
+
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-	return MAX(self.devices.count, (NSUInteger)1);
+	return section == 0 ? MAX(self.devices.count, (NSUInteger)1) : 1;
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
-	return @"Thiết bị xung quanh";
+	return section == 0 ? @"Thiết bị xung quanh" : nil;
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
+	if (section == 1) return @"iOS hiện chỉ cho Cài đặt quét và ghép đôi thiết bị mới.";
 	BDBluetooth *bt = BDBluetooth.shared;
 	NSMutableString *text = [NSMutableString stringWithString:
 		@"Bật chế độ ghép đôi trên thiết bị (thường là giữ nút Bluetooth hoặc nút nguồn đến khi đèn nháy). "
@@ -76,6 +82,14 @@
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+	if (indexPath.section == 1) {
+		UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"settings"]
+			?: [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"settings"];
+		cell.textLabel.text = @"Ghép đôi bằng Cài đặt › Bluetooth";
+		cell.textLabel.textColor = self.view.tintColor;
+		cell.imageView.image = [UIImage systemImageNamed:@"gear"];
+		return cell;
+	}
 	if (!self.devices.count) {
 		UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"empty"]
 			?: [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:@"empty"];
@@ -95,7 +109,8 @@
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
 	[tableView deselectRowAtIndexPath:indexPath animated:YES];
-	if (indexPath.row < (NSInteger)self.devices.count) [self pair:self.devices[indexPath.row]];
+	if (indexPath.section == 1) BDOpenBluetoothSettings();
+	else if (indexPath.row < (NSInteger)self.devices.count) [self pair:self.devices[indexPath.row]];
 }
 
 - (void)pair:(BluetoothDevice *)device {
