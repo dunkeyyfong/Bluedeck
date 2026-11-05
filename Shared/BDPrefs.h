@@ -16,6 +16,7 @@
 #define kBDMixStatusLoaded 0x1   // hooks installed in this app
 #define kBDMixStatusAccepted 0x2 // iOS accepted a mixed category
 #define kBDMixStatusRejected 0x4 // iOS refused one
+#define kBDMixStatusInjected 0x8 // BluedeckSystem is running in this app (picked or not)
 
 // Which profiles a device may use: @{address: @(BDProfile)}.
 #define kBDPrefProfiles @"profiles"

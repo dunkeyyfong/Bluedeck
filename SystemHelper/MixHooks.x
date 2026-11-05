@@ -112,6 +112,9 @@ void BDMixStart(NSString *bundleID) {
 	gStateName = BDMixAppStateName(bundleID);
 	gStatusName = BDMixStatusStateName(bundleID);
 	BDMixRefresh();
+	// Report that we got into this app at all, so Bluedeck can tell "not injected" from
+	// "injected but not picked when it launched".
+	BDMixReport(kBDMixStatusInjected);
 	// Only apps that were picked when they launched get hooks; others stay untouched.
 	if (BDNotifyGetState(gStateName.UTF8String) != 1) return;
 	%init(Mix);

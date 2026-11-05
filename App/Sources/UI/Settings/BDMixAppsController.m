@@ -4,16 +4,15 @@
 
 // What the hooks in that app last reported (see kBDMixStatus* in BDPrefs.h).
 static NSString *BDMixStatusText(NSString *bundleID) {
-	int token = 0;
-	uint64_t state = 0;
-	if (notify_register_check(BDMixStatusStateName(bundleID).UTF8String, &token) != NOTIFY_STATUS_OK) return nil;
-	notify_get_state(token, &state);
-	notify_cancel(token);
+	uint64_t state = BDGetState(BDMixStatusStateName(bundleID).UTF8String);
 	uint8_t flags = state & 0xff;
-	if (!(flags & kBDMixStatusLoaded)) return @"Chưa chạy — tắt hẳn app rồi mở lại";
+	BOOL published = BDGetState(BDMixAppStateName(bundleID).UTF8String) == 1 && BDGetState(kBDMixEnabledState) == 1;
 	NSDateFormatter *fmt = [NSDateFormatter new];
-	fmt.dateFormat = @"HH:mm";
+	fmt.dateFormat = @"HH:mm:ss";
 	NSString *when = [fmt stringFromDate:[NSDate dateWithTimeIntervalSince1970:(NSTimeInterval)(state >> 8)]];
+	if (!published) return @"⚠︎ Chưa được bật trong hệ thống — gạt tắt/bật lại công tắc";
+	if (!(flags & (kBDMixStatusInjected | kBDMixStatusLoaded))) return @"Tweak chưa vào app — mở app này một lần (sau khi đã tắt hẳn)";
+	if (!(flags & kBDMixStatusLoaded)) return [NSString stringWithFormat:@"App mở lúc chưa bật (%@) — tắt hẳn app rồi mở lại", when];
 	if (flags & kBDMixStatusRejected) return [NSString stringWithFormat:@"⚠︎ iOS từ chối phát chung (%@)", when];
 	if (flags & kBDMixStatusAccepted) return [NSString stringWithFormat:@"✓ Đang phát chung (%@)", when];
 	return [NSString stringWithFormat:@"Đã nạp, app chưa phát âm thanh (%@)", when];

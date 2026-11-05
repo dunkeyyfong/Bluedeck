@@ -15,3 +15,6 @@
 - (void)setProfile:(BDProfile)profile forAddress:(NSString *)address;
 
 @end
+
+// Current value of a Darwin notify state (0 if unset).
+uint64_t BDGetState(const char *name);
