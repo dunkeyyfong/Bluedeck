@@ -12,7 +12,9 @@ NSString *const BDBluetoothPairingRequestNotification = @"BDBluetoothPairingRequ
 @property (nonatomic, strong) NSMutableDictionary<NSString *, BluetoothDevice *> *discovered;
 @property (nonatomic, readwrite) BOOL scanning;
 @property (nonatomic, copy) NSString *pendingPlayAddress;
+@property (nonatomic, strong) NSDate *pendingPlayStarted;
 @property (nonatomic, strong) NSDate *pendingPlayDeadline;
+@property (nonatomic, assign) BOOL pendingPlayDidFallback;
 @end
 
 @implementation BDBluetooth
@@ -55,6 +57,12 @@ NSString *const BDBluetoothPairingRequestNotification = @"BDBluetoothPairingRequ
 		if ([name containsString:@"Discovered"] && [obj respondsToSelector:@selector(address)]) {
 			BluetoothDevice *device = obj;
 			if (device.address && !device.paired) self.discovered[device.address] = device;
+		}
+		// bluetoothd ends discovery after a few seconds; keep it going while the scan screen is open.
+		if ([name isEqualToString:@"BluetoothDiscoveryStoppedNotification"] && self.scanning) {
+			dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+				if (self.scanning) [self beginDiscovery];
+			});
 		}
 		if ([name containsString:@"Pairing"] && ([name containsString:@"Request"] || [name containsString:@"Comparision"]
 				|| [name containsString:@"Comparison"] || [name containsString:@"Confirmation"] || [name containsString:@"Passkey"])) {
@@ -190,10 +198,16 @@ NSString *const BDBluetoothPairingRequestNotification = @"BDBluetoothPairingRequ
 
 - (void)startScan {
 	[self.discovered removeAllObjects];
+	self.scanning = YES;
+	[self beginDiscovery];
+	[self scheduleChange];
+}
+
+- (void)beginDiscovery {
 	if ([self.manager respondsToSelector:@selector(setDevicePairingEnabled:)]) [self.manager setDevicePairingEnabled:YES];
 	if ([self.manager respondsToSelector:@selector(setDeviceScanningEnabled:)]) [self.manager setDeviceScanningEnabled:YES];
-	self.scanning = YES;
-	[self scheduleChange];
+	// Scanning alone only arms discovery; asking for all services is what makes bluetoothd inquire.
+	if ([self.manager respondsToSelector:@selector(scanForServices:)]) [self.manager scanForServices:0xFFFFFFFF];
 }
 
 - (void)stopScan {
@@ -272,15 +286,41 @@ NSString *const BDBluetoothPairingRequestNotification = @"BDBluetoothPairingRequ
 		return;
 	}
 	self.pendingPlayAddress = device.address;
-	self.pendingPlayDeadline = [NSDate dateWithTimeIntervalSinceNow:20];
+	self.pendingPlayStarted = NSDate.date;
+	self.pendingPlayDeadline = [NSDate dateWithTimeIntervalSinceNow:25];
+	self.pendingPlayDidFallback = NO;
 	if (!device.connected) [self connect:device];
 	// Routes are refreshed on every connect notification; also poll a few times as a fallback.
-	for (int i = 1; i <= 6; i++) {
+	for (int i = 1; i <= 8; i++) {
 		dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(i * 2.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-			if (self.pendingPlayAddress) [self refreshRoutes];
+			if (!self.pendingPlayAddress) return;
+			[self releaseAudioFromOtherDeviceIfNeeded];
+			[self refreshRoutes];
 		});
 	}
 	[self scheduleChange];
+}
+
+// With two speakers connected, iOS keeps audio on the first one and never offers the second
+// as a route. If the target is connected but still has no route, disconnect whichever
+// Bluetooth device currently holds the audio so iOS hands it over.
+- (void)releaseAudioFromOtherDeviceIfNeeded {
+	if (self.pendingPlayDidFallback || [self.pendingPlayStarted timeIntervalSinceNow] > -4) return;
+	BluetoothDevice *target = nil;
+	for (BluetoothDevice *device in self.pairedDevices) {
+		if ([device.address isEqualToString:self.pendingPlayAddress]) target = device;
+	}
+	if (!target.connected || [self routeForDevice:target]) return;
+	MPAVRoute *picked = self.pickedRoute;
+	if (!picked || picked.isDeviceSpeakerRoute) return;
+	for (BluetoothDevice *device in self.pairedDevices) {
+		if (device == target || !device.connected) continue;
+		if ([self routeForDevice:device] == picked) {
+			self.pendingPlayDidFallback = YES;
+			[self disconnect:device];
+			return;
+		}
+	}
 }
 
 - (BOOL)isWaitingToPlayOn:(BluetoothDevice *)device {

@@ -9,7 +9,7 @@
 #import <objc/message.h>
 #import <sys/utsname.h>
 
-#define kBDVersion @"0.1.0"
+#define kBDVersion @"0.1.1"
 
 static NSArray<NSString *> *BDManagerGetters(void) {
 	return @[@"available", @"enabled", @"powered", @"powerState", @"bluetoothState", @"localAddress",
@@ -182,7 +182,7 @@ static NSArray<NSString *> *BDInspectedClasses(void) {
 
 - (void)anyNotification:(NSNotification *)note {
 	NSString *name = note.name;
-	if (![name hasPrefix:@"BT"] && ![name containsString:@"Bluetooth"]) return;
+	if ([name hasPrefix:@"BD"] || (![name hasPrefix:@"BT"] && ![name containsString:@"Bluetooth"])) return;
 	dispatch_async(dispatch_get_main_queue(), ^{
 		NSString *objectInfo = @"";
 		id obj = note.object;
@@ -197,6 +197,11 @@ static NSArray<NSString *> *BDInspectedClasses(void) {
 		fmt.dateFormat = @"HH:mm:ss";
 		[self.events insertObject:[NSString stringWithFormat:@"%@ %@%@", [fmt stringFromDate:NSDate.date], name, objectInfo] atIndex:0];
 		if (self.events.count > 300) [self.events removeLastObject];
+		// Route list is a snapshot; re-fetch it whenever something connects or disconnects.
+		if ([name containsString:@"Connect"]) {
+			[NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(refreshAll) object:nil];
+			[self performSelector:@selector(refreshAll) withObject:nil afterDelay:1.0];
+		}
 		[self scheduleRebuild];
 	});
 }

@@ -47,6 +47,7 @@
 - (void)disconnectDevice:(BluetoothDevice *)device;
 - (void)unpairDevice:(BluetoothDevice *)device;
 - (void)setDeviceScanningEnabled:(BOOL)enabled;
+- (void)scanForServices:(unsigned int)services;
 - (void)setDevicePairingEnabled:(BOOL)enabled;
 - (BOOL)deviceScanningEnabled;
 - (void)acceptSSP:(long long)result forDevice:(BluetoothDevice *)device;
