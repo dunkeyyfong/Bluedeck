@@ -1,5 +1,23 @@
 #import "BDMixAppsController.h"
 #import "BDPrefsStore.h"
+#import <notify.h>
+
+// What the hooks in that app last reported (see kBDMixStatus* in BDPrefs.h).
+static NSString *BDMixStatusText(NSString *bundleID) {
+	int token = 0;
+	uint64_t state = 0;
+	if (notify_register_check(BDMixStatusStateName(bundleID).UTF8String, &token) != NOTIFY_STATUS_OK) return nil;
+	notify_get_state(token, &state);
+	notify_cancel(token);
+	uint8_t flags = state & 0xff;
+	if (!(flags & kBDMixStatusLoaded)) return @"Chưa chạy — tắt hẳn app rồi mở lại";
+	NSDateFormatter *fmt = [NSDateFormatter new];
+	fmt.dateFormat = @"HH:mm";
+	NSString *when = [fmt stringFromDate:[NSDate dateWithTimeIntervalSince1970:(NSTimeInterval)(state >> 8)]];
+	if (flags & kBDMixStatusRejected) return [NSString stringWithFormat:@"⚠︎ iOS từ chối phát chung (%@)", when];
+	if (flags & kBDMixStatusAccepted) return [NSString stringWithFormat:@"✓ Đang phát chung (%@)", when];
+	return [NSString stringWithFormat:@"Đã nạp, app chưa phát âm thanh (%@)", when];
+}
 
 @interface UIImage (BDPrivateIcons)
 + (UIImage *)_applicationIconImageForBundleIdentifier:(NSString *)bundleIdentifier format:(int)format scale:(CGFloat)scale;
@@ -67,6 +85,7 @@ static NSArray<BDAppEntry *> *BDInstalledApps(void) {
 	search.searchBar.placeholder = @"Tìm app";
 	self.navigationItem.searchController = search;
 	self.navigationItem.hidesSearchBarWhenScrolling = NO;
+	[NSNotificationCenter.defaultCenter addObserver:self.tableView selector:@selector(reloadData) name:UIApplicationDidBecomeActiveNotification object:nil];
 	dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
 		NSArray *apps = BDInstalledApps();
 		dispatch_async(dispatch_get_main_queue(), ^{
@@ -131,14 +150,15 @@ static NSArray<BDAppEntry *> *BDInstalledApps(void) {
 	BDAppEntry *app = self.sections[indexPath.section][indexPath.row];
 	UIListContentConfiguration *content = [UIListContentConfiguration subtitleCellConfiguration];
 	content.text = app.name;
-	content.secondaryText = app.bundleID;
+	BOOL picked = [self.selected containsObject:app.bundleID];
+	content.secondaryText = picked ? (BDMixStatusText(app.bundleID) ?: app.bundleID) : app.bundleID;
 	content.secondaryTextProperties.color = UIColor.secondaryLabelColor;
 	content.image = [self iconFor:app.bundleID] ?: [UIImage systemImageNamed:@"app.fill"];
 	content.imageProperties.maximumSize = CGSizeMake(32, 32);
 	content.imageProperties.cornerRadius = 7;
 	cell.contentConfiguration = content;
 	UISwitch *toggle = (UISwitch *)cell.accessoryView;
-	toggle.on = [self.selected containsObject:app.bundleID];
+	toggle.on = picked;
 	toggle.accessibilityIdentifier = app.bundleID;
 	return cell;
 }
@@ -149,6 +169,11 @@ static NSArray<BDAppEntry *> *BDInstalledApps(void) {
 	if (toggle.on) [self.selected addObject:bundleID];
 	else [self.selected removeObject:bundleID];
 	BDPrefsStore.shared.mixApps = [self.selected.allObjects sortedArrayUsingSelector:@selector(compare:)];
+}
+
+- (void)viewWillAppear:(BOOL)animated {
+	[super viewWillAppear:animated];
+	[self.tableView reloadData]; // refresh per-app status after coming back from another app
 }
 
 @end

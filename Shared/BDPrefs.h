@@ -11,6 +11,11 @@
 #define kBDPrefMixApps @"mixApps"         // NSArray<NSString *> bundle ids
 #define kBDMixEnabledState "com.pgong.bluedeck.mix/enabled"
 #define kBDMixAppStatePrefix "com.pgong.bluedeck.mix/app/"
+// Per-app report written by the hooks: (unix time << 8) | flags.
+#define kBDMixStatusPrefix "com.pgong.bluedeck.mix/status/"
+#define kBDMixStatusLoaded 0x1   // hooks installed in this app
+#define kBDMixStatusAccepted 0x2 // iOS accepted a mixed category
+#define kBDMixStatusRejected 0x4 // iOS refused one
 
 // Which profiles a device may use: @{address: @(BDProfile)}.
 #define kBDPrefProfiles @"profiles"
@@ -28,4 +33,8 @@ typedef NS_ENUM(NSInteger, BDProfile) {
 
 static inline NSString *BDMixAppStateName(NSString *bundleID) {
 	return [@kBDMixAppStatePrefix stringByAppendingString:bundleID ?: @""];
+}
+
+static inline NSString *BDMixStatusStateName(NSString *bundleID) {
+	return [@kBDMixStatusPrefix stringByAppendingString:bundleID ?: @""];
 }
