@@ -1,23 +1,28 @@
 #import "BDBluetooth.h"
+#import "BDHelperClient.h"
 #import <UIKit/UIKit.h>
 #import <dlfcn.h>
 
 NSString *const BDBluetoothDidChangeNotification = @"BDBluetoothDidChangeNotification";
 NSString *const BDBluetoothPairingRequestNotification = @"BDBluetoothPairingRequestNotification";
 NSString *const BDBluetoothForgetFailedNotification = @"BDBluetoothForgetFailedNotification";
+NSString *const BDBluetoothHelperErrorNotification = @"BDBluetoothHelperErrorNotification";
 
 @interface BDBluetooth ()
 @property (nonatomic, strong) BluetoothManager *manager;
 @property (nonatomic, strong) MPAVRoutingController *routing;
 @property (nonatomic, readwrite, copy) NSArray<MPAVRoute *> *routes;
-@property (nonatomic, strong) NSMutableDictionary<NSString *, BluetoothDevice *> *discovered;
+@property (nonatomic, readwrite, copy) NSArray<NSDictionary *> *discoveredInfos;
+@property (nonatomic, readwrite, copy) NSString *scanError;
+@property (nonatomic, readwrite, copy) NSString *pairingAddress;
 @property (nonatomic, readwrite) BOOL scanning;
+@property (nonatomic, assign) NSInteger scanGeneration;
 @property (nonatomic, copy) NSString *pendingPlayAddress;
 @property (nonatomic, strong) NSDate *pendingPlayStarted;
 @property (nonatomic, strong) NSDate *pendingPlayDeadline;
 @property (nonatomic, assign) BOOL pendingPlayDidFallback;
-@property (nonatomic, readwrite) NSInteger discoveryHits;
 @property (nonatomic, strong) NSMutableArray<NSString *> *recentEvents;
+@property (nonatomic, strong) NSMutableSet<NSString *> *forgetting;
 @end
 
 @implementation BDBluetooth
@@ -33,8 +38,8 @@ NSString *const BDBluetoothForgetFailedNotification = @"BDBluetoothForgetFailedN
 	if ((self = [super init])) {
 		dlopen("/System/Library/PrivateFrameworks/BluetoothManager.framework/BluetoothManager", RTLD_NOW);
 		dlopen("/System/Library/Frameworks/MediaPlayer.framework/MediaPlayer", RTLD_NOW);
-		_discovered = [NSMutableDictionary dictionary];
 		_recentEvents = [NSMutableArray array];
+		_forgetting = [NSMutableSet set];
 		Class managerClass = NSClassFromString(@"BluetoothManager");
 		if ([managerClass respondsToSelector:@selector(sharedInstance)]) _manager = [managerClass sharedInstance];
 
@@ -46,23 +51,19 @@ NSString *const BDBluetoothForgetFailedNotification = @"BDBluetoothForgetFailedN
 		}
 		[NSNotificationCenter.defaultCenter addObserver:self selector:@selector(bluetoothNotification:) name:nil object:nil];
 		[NSNotificationCenter.defaultCenter addObserver:self selector:@selector(audioRouteChanged:) name:@"AVAudioSessionRouteChangeNotification" object:nil];
-		// Settings keeps the pairing agent up while its Bluetooth page is visible; unpair and
-		// pairing requests appear to be dropped without it. Mirror that while we're foreground.
-		[NSNotificationCenter.defaultCenter addObserver:self selector:@selector(enterForeground) name:UIApplicationDidBecomeActiveNotification object:nil];
 		[NSNotificationCenter.defaultCenter addObserver:self selector:@selector(enterBackground) name:UIApplicationDidEnterBackgroundNotification object:nil];
-		[self enterForeground];
+		__weak typeof(self) weakSelf = self;
+		BDHelperClient.shared.onDiscovered = ^(NSArray<NSDictionary *> *devices) {
+			weakSelf.discoveredInfos = devices;
+			[weakSelf scheduleChange];
+		};
 		[self refreshRoutes];
 	}
 	return self;
 }
 
-- (void)enterForeground {
-	if ([self.manager respondsToSelector:@selector(setDevicePairingEnabled:)]) [self.manager setDevicePairingEnabled:YES];
-}
-
 - (void)enterBackground {
 	if (self.scanning) [self stopScan];
-	if ([self.manager respondsToSelector:@selector(setDevicePairingEnabled:)]) [self.manager setDevicePairingEnabled:NO];
 }
 
 #pragma mark - Change tracking
@@ -81,18 +82,6 @@ NSString *const BDBluetoothForgetFailedNotification = @"BDBluetoothForgetFailedN
 			noteDevice.name ? [@" · " stringByAppendingString:noteDevice.name] : @""] atIndex:0];
 		if (self.recentEvents.count > 40) [self.recentEvents removeLastObject];
 
-		// Any device-carrying discovery event counts, paired or not (a paired speaker put back
-		// into pairing mode is still a valid hit).
-		if ([name containsString:@"Discover"] && noteDevice.address) {
-			self.discoveryHits++;
-			self.discovered[noteDevice.address] = noteDevice;
-		}
-		// bluetoothd ends discovery after a few seconds; keep it going while the scan screen is open.
-		if ([name isEqualToString:@"BluetoothDiscoveryStoppedNotification"] && self.scanning) {
-			dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-				if (self.scanning) [self beginDiscovery];
-			});
-		}
 		if ([name containsString:@"Pairing"] && ([name containsString:@"Request"] || [name containsString:@"Comparision"]
 				|| [name containsString:@"Comparison"] || [name containsString:@"Confirmation"] || [name containsString:@"Passkey"])) {
 			NSMutableDictionary *info = [NSMutableDictionary dictionaryWithObject:name forKey:@"name"];
@@ -174,20 +163,31 @@ NSString *const BDBluetoothForgetFailedNotification = @"BDBluetoothForgetFailedN
 	}];
 }
 
-- (NSArray<BluetoothDevice *> *)discoveredDevices {
+- (NSArray<NSDictionary *> *)discoveredDevices {
 	// New devices first, then ones already paired (shown so the user sees discovery works).
-	return [self.discovered.allValues sortedArrayUsingComparator:^NSComparisonResult(BluetoothDevice *a, BluetoothDevice *b) {
-		if (a.paired != b.paired) return a.paired ? NSOrderedDescending : NSOrderedAscending;
-		return [a.name ?: @"" localizedCaseInsensitiveCompare:b.name ?: @""];
+	return [self.discoveredInfos sortedArrayUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
+		BOOL pa = [a[@"paired"] boolValue], pb = [b[@"paired"] boolValue];
+		if (pa != pb) return pa ? NSOrderedDescending : NSOrderedAscending;
+		return [a[@"name"] ?: @"" localizedCaseInsensitiveCompare:b[@"name"] ?: @""];
 	}];
 }
 
+- (NSInteger)discoveryHits {
+	return self.discoveredInfos.count;
+}
+
+// bluetoothd ignores power changes from Bluedeck (iOS asks to finish in Settings), so
+// Settings does it through BluedeckHelper.
 - (void)setPowered:(BOOL)powered {
-	// setEnabled:NO is the Control Center style "disconnect" that makes iOS ask to finish in
-	// Settings; a real power-off only needs setPowered:.
-	if (powered && [self.manager respondsToSelector:@selector(setEnabled:)]) [self.manager setEnabled:YES];
-	if ([self.manager respondsToSelector:@selector(setPowered:)]) [self.manager setPowered:powered];
-	[self scheduleChange];
+	[BDHelperClient.shared send:powered ? BDHelperOpPowerOn : BDHelperOpPowerOff address:nil wake:YES completion:^(BDHelperStatus status) {
+		if (status != BDHelperStatusOK) [self postHelperError:@"Không đổi được trạng thái Bluetooth" status:status];
+		[self scheduleChange];
+	}];
+}
+
+- (void)postHelperError:(NSString *)title status:(BDHelperStatus)status {
+	[NSNotificationCenter.defaultCenter postNotificationName:BDBluetoothHelperErrorNotification object:self
+		userInfo:@{@"title": title, @"message": BDHelperStatusText(status)}];
 }
 
 - (BOOL)isConnecting:(BluetoothDevice *)device {
@@ -213,56 +213,76 @@ NSString *const BDBluetoothForgetFailedNotification = @"BDBluetoothForgetFailedN
 	[self scheduleChange];
 }
 
+// bluetoothd ignores unpair from Bluedeck (even with Settings' entitlements); Settings does it.
 - (void)forget:(BluetoothDevice *)device {
 	NSString *address = device.address;
 	NSString *name = device.name;
-	// Settings drops the link before unpairing; unpairing a live connection can be ignored.
-	BOOL wasConnected = device.connected;
-	if (wasConnected) [self disconnect:device];
-	[self enterForeground];
-	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)((wasConnected ? 1.5 : 0.3) * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-		if ([device respondsToSelector:@selector(unpair)]) [device unpair];
-		if ([self.manager respondsToSelector:@selector(unpairDevice:)]) [self.manager unpairDevice:device];
+	[self.forgetting addObject:address ?: @""];
+	[self scheduleChange];
+	[BDHelperClient.shared send:BDHelperOpForget address:address wake:YES completion:^(BDHelperStatus status) {
+		[self.forgetting removeObject:address ?: @""];
 		[self scheduleChange];
-		dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-			for (BluetoothDevice *d in self.pairedDevices) {
-				if (![d.address isEqualToString:address]) continue;
-				[NSNotificationCenter.defaultCenter postNotificationName:BDBluetoothForgetFailedNotification object:self
-					userInfo:@{@"name": name ?: address ?: @"?", @"events": [self.recentEvents componentsJoinedByString:@"\n"]}];
-				return;
-			}
-			[self scheduleChange];
-		});
-	});
+		if (status == BDHelperStatusOK) return;
+		[NSNotificationCenter.defaultCenter postNotificationName:BDBluetoothForgetFailedNotification object:self
+			userInfo:@{@"name": name ?: address ?: @"?", @"events": BDHelperStatusText(status)}];
+	}];
+}
+
+- (BOOL)isForgetting:(BluetoothDevice *)device {
+	return device.address && [self.forgetting containsObject:device.address];
 }
 
 - (NSArray<NSString *> *)recentEventLines {
 	return [self.recentEvents copy];
 }
 
+// Discovery from Bluedeck's own session never reports devices, so Settings scans and relays
+// what it finds. Settings' scan window is ~25 s; renew it while the scan screen is open.
 - (void)startScan {
-	[self.discovered removeAllObjects];
-	self.discoveryHits = 0;
+	self.discoveredInfos = @[];
+	self.scanError = nil;
 	self.scanning = YES;
-	[self beginDiscovery];
+	NSInteger generation = ++self.scanGeneration;
+	[self renewScan:generation];
 	[self scheduleChange];
 }
 
-- (void)beginDiscovery {
-	// Same calls as Settings' Bluetooth page: pairing agent on, then plain device scanning.
-	// (scanForServices: switches bluetoothd to a service-filtered scan that never reported devices.)
-	if ([self.manager respondsToSelector:@selector(setDevicePairingEnabled:)]) [self.manager setDevicePairingEnabled:YES];
-	if ([self.manager respondsToSelector:@selector(setDeviceScanningEnabled:)]) [self.manager setDeviceScanningEnabled:YES];
+- (void)renewScan:(NSInteger)generation {
+	if (!self.scanning || generation != self.scanGeneration) return;
+	[BDHelperClient.shared send:BDHelperOpScanStart address:nil wake:YES completion:^(BDHelperStatus status) {
+		self.scanError = status == BDHelperStatusOK ? nil : BDHelperStatusText(status);
+		[self scheduleChange];
+	}];
+	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(20 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+		[self renewScan:generation];
+	});
 }
 
 - (void)stopScan {
-	if ([self.manager respondsToSelector:@selector(setDeviceScanningEnabled:)]) [self.manager setDeviceScanningEnabled:NO];
 	self.scanning = NO;
+	self.scanGeneration++;
+	[BDHelperClient.shared send:BDHelperOpScanStop address:nil wake:NO completion:nil];
 	[self scheduleChange];
 }
 
-- (void)pair:(BluetoothDevice *)device {
-	[self connect:device];
+- (void)pairAddress:(NSString *)address {
+	if (!address.length) return;
+	self.pairingAddress = address;
+	[self scheduleChange];
+	[BDHelperClient.shared send:BDHelperOpPair address:address wake:YES completion:^(BDHelperStatus status) {
+		self.pairingAddress = nil;
+		if (status != BDHelperStatusOK) [self postHelperError:@"Không ghép đôi được" status:status];
+		[self scheduleChange];
+	}];
+}
+
+- (void)connectAddress:(NSString *)address {
+	for (BluetoothDevice *device in self.pairedDevices) {
+		if ([device.address caseInsensitiveCompare:address] == NSOrderedSame) {
+			[self connect:device];
+			return;
+		}
+	}
 }
 
 - (void)acceptPairingForDevice:(BluetoothDevice *)device {

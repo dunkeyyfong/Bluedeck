@@ -5,11 +5,6 @@ static unsigned int BDMajor(BluetoothDevice *device) {
 	return major > 0x1f ? (major >> 8) & 0x1f : major;
 }
 
-static unsigned int BDMinor(BluetoothDevice *device) {
-	unsigned int minor = [device respondsToSelector:@selector(minorClass)] ? device.minorClass : 0;
-	return (minor >> 2) & 0x3f;
-}
-
 UIImage *BDSymbol(NSString *name, CGFloat pointSize, UIFontWeight weight) {
 	UIImageSymbolWeight symbolWeight = weight >= UIFontWeightBold ? UIImageSymbolWeightBold
 		: weight >= UIFontWeightSemibold ? UIImageSymbolWeightSemibold
@@ -44,8 +39,13 @@ UIImage *BDSymbol(NSString *name, CGFloat pointSize, UIFontWeight weight) {
 		BDDeviceKind *apple = [self appleKindForDevice:device];
 		if (apple) return apple;
 	}
-	unsigned int major = BDMajor(device), minor = BDMinor(device);
-	unsigned int rawMinor = [device respondsToSelector:@selector(minorClass)] ? device.minorClass : 0;
+	return [self kindForMajor:[device respondsToSelector:@selector(majorClass)] ? device.majorClass : 0
+		minor:[device respondsToSelector:@selector(minorClass)] ? device.minorClass : 0];
+}
+
++ (instancetype)kindForMajor:(unsigned int)majorClass minor:(unsigned int)rawMinor {
+	unsigned int major = majorClass > 0x1f ? (majorClass >> 8) & 0x1f : majorClass;
+	unsigned int minor = (rawMinor >> 2) & 0x3f;
 	switch (major) {
 		case 1: return [self name:@"Máy tính" symbol:@"laptopcomputer" color:UIColor.systemBlueColor];
 		case 2: return [self name:@"Điện thoại" symbol:@"iphone" color:UIColor.systemBlueColor];
@@ -127,7 +127,10 @@ NSString *BDClassDescription(BluetoothDevice *device) {
 }
 
 - (void)configureWithDevice:(BluetoothDevice *)device {
-	BDDeviceKind *kind = [BDDeviceKind kindForDevice:device];
+	[self configureWithKind:[BDDeviceKind kindForDevice:device]];
+}
+
+- (void)configureWithKind:(BDDeviceKind *)kind {
 	UIColor *top = kind.color;
 	CGFloat h = 0, s = 0, b = 0, a = 1;
 	UIColor *bottom = top;

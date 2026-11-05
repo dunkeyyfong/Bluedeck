@@ -63,9 +63,12 @@
 	[self.iconView configureWithDevice:device];
 	self.titleLabel.text = device.name.length ? device.name : @"(không tên)";
 
-	BOOL connecting = [bt isConnecting:device] || [bt isWaitingToPlayOn:device];
+	BOOL forgetting = [bt isForgetting:device];
+	BOOL connecting = forgetting || [bt isConnecting:device] || [bt isWaitingToPlayOn:device];
 	NSMutableArray *status = [NSMutableArray arrayWithObject:kind.name];
-	if (mode == BDDeviceCellModeDiscovered) {
+	if (forgetting) {
+		[status addObject:@"Đang quên…"];
+	} else if (mode == BDDeviceCellModeDiscovered) {
 		if (device.paired) [status addObject:device.connected ? @"Đã kết nối" : @"Đã ghép đôi"];
 		[status addObject:device.address ?: @""];
 	} else if (connecting) {

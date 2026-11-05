@@ -11,6 +11,7 @@
 	[BDBluetooth shared];
 	[NSNotificationCenter.defaultCenter addObserver:self selector:@selector(pairingRequest:) name:BDBluetoothPairingRequestNotification object:nil];
 	[NSNotificationCenter.defaultCenter addObserver:self selector:@selector(forgetFailed:) name:BDBluetoothForgetFailedNotification object:nil];
+	[NSNotificationCenter.defaultCenter addObserver:self selector:@selector(helperError:) name:BDBluetoothHelperErrorNotification object:nil];
 
 	BDDiagController *diag = [BDDiagController new];
 	diag.tabBarItem = [[UITabBarItem alloc] initWithTitle:@"Chẩn đoán" image:[UIImage systemImageNamed:@"stethoscope"] tag:2];
@@ -38,9 +39,18 @@
 	return top;
 }
 
+- (void)helperError:(NSNotification *)note {
+	UIAlertController *alert = [UIAlertController alertControllerWithTitle:note.userInfo[@"title"] message:note.userInfo[@"message"] preferredStyle:UIAlertControllerStyleAlert];
+	[alert addAction:[UIAlertAction actionWithTitle:@"Mở Cài đặt › Bluetooth" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+		BDOpenBluetoothSettings();
+	}]];
+	[alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleCancel handler:nil]];
+	[[self topController] presentViewController:alert animated:YES completion:nil];
+}
+
 - (void)forgetFailed:(NSNotification *)note {
-	NSString *message = [NSString stringWithFormat:@"iOS vẫn giữ “%@” trong danh sách ghép đôi. Mở Cài đặt › Bluetooth xem thiết bị còn ở đó không.\n\nSự kiện gần nhất:\n%@",
-		note.userInfo[@"name"], note.userInfo[@"events"] ?: @"(không có)"];
+	NSString *message = [NSString stringWithFormat:@"Không quên được “%@”.\n\nLý do: %@",
+		note.userInfo[@"name"], note.userInfo[@"events"] ?: @"không rõ"];
 	UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Chưa quên được thiết bị" message:message preferredStyle:UIAlertControllerStyleAlert];
 	[alert addAction:[UIAlertAction actionWithTitle:@"Mở Cài đặt › Bluetooth" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
 		BDOpenBluetoothSettings();

@@ -11,7 +11,7 @@
 #import <objc/message.h>
 #import <sys/utsname.h>
 
-#define kBDVersion @"0.1.6"
+#define kBDVersion @"0.2.0"
 
 static NSArray<NSString *> *BDManagerGetters(void) {
 	return @[@"available", @"enabled", @"powered", @"powerState", @"bluetoothState", @"localAddress",
