@@ -11,28 +11,6 @@ typedef NS_ENUM(NSInteger, BDListSection) {
 	BDListSectionAdd,
 };
 
-void BDPresentRename(UIViewController *host, id deviceObj) {
-	BluetoothDevice *device = deviceObj;
-	UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Đổi tên thiết bị"
-		message:@"Tên mới được lưu trong hệ thống, hiện ở cả Cài đặt và Trung tâm điều khiển." preferredStyle:UIAlertControllerStyleAlert];
-	[alert addTextFieldWithConfigurationHandler:^(UITextField *field) {
-		field.text = device.name;
-		field.clearButtonMode = UITextFieldViewModeWhileEditing;
-		field.autocapitalizationType = UITextAutocapitalizationTypeWords;
-	}];
-	[alert addAction:[UIAlertAction actionWithTitle:@"Huỷ" style:UIAlertActionStyleCancel handler:nil]];
-	[alert addAction:[UIAlertAction actionWithTitle:@"Lưu" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-		NSString *name = [alert.textFields.firstObject.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
-		if (!name.length) return;
-		if (![BDBluetooth.shared rename:device to:name]) {
-			UIAlertController *fail = [UIAlertController alertControllerWithTitle:@"Không đổi được tên" message:@"bluetoothd từ chối yêu cầu." preferredStyle:UIAlertControllerStyleAlert];
-			[fail addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
-			[host presentViewController:fail animated:YES completion:nil];
-		}
-	}]];
-	[host presentViewController:alert animated:YES completion:nil];
-}
-
 void BDPresentForget(UIViewController *host, id deviceObj, void (^done)(void)) {
 	BluetoothDevice *device = deviceObj;
 	UIAlertController *sheet = [UIAlertController alertControllerWithTitle:[NSString stringWithFormat:@"Quên “%@”?", device.name]
@@ -128,7 +106,7 @@ void BDPresentForget(UIViewController *host, id deviceObj, void (^done)(void)) {
 		NSString *address = BDBluetooth.shared.localAddress;
 		return address ? [NSString stringWithFormat:@"Địa chỉ iPhone: %@", address] : nil;
 	}
-	if (section == BDListSectionOther && self.others.count) return @"Vuốt sang trái để đổi tên hoặc quên thiết bị.";
+	if (section == BDListSectionOther && self.others.count) return @"Vuốt sang trái để quên thiết bị.";
 	return nil;
 }
 
@@ -200,13 +178,7 @@ void BDPresentForget(UIViewController *host, id deviceObj, void (^done)(void)) {
 			BDPresentForget(self, device, nil);
 			completion(YES);
 		}];
-	UIContextualAction *rename = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleNormal title:@"Đổi tên"
-		handler:^(UIContextualAction *action, UIView *view, void (^completion)(BOOL)) {
-			BDPresentRename(self, device);
-			completion(YES);
-		}];
-	rename.backgroundColor = UIColor.systemBlueColor;
-	return [UISwipeActionsConfiguration configurationWithActions:@[forget, rename]];
+	return [UISwipeActionsConfiguration configurationWithActions:@[forget]];
 }
 
 @end

@@ -1,7 +1,5 @@
 #import "BDDeviceStyle.h"
 
-static NSString *const kBDPhotoDir = @"/var/mobile/Library/Bluedeck/Photos";
-
 static unsigned int BDMajor(BluetoothDevice *device) {
 	unsigned int major = [device respondsToSelector:@selector(majorClass)] ? device.majorClass : 0;
 	return major > 0x1f ? (major >> 8) & 0x1f : major;
@@ -89,60 +87,11 @@ NSString *BDClassDescription(BluetoothDevice *device) {
 	return [NSString stringWithFormat:@"%@ · %@ (0x%04x)", majorName, [BDDeviceKind kindForDevice:device].name, rawMajor | rawMinor];
 }
 
-#pragma mark - Photos
-
-static NSString *BDPhotoPath(NSString *address) {
-	NSString *file = [[address stringByReplacingOccurrencesOfString:@":" withString:@""] stringByAppendingPathExtension:@"jpg"];
-	return [kBDPhotoDir stringByAppendingPathComponent:file];
-}
-
-static NSCache *BDPhotoCache(void) {
-	static NSCache *cache;
-	static dispatch_once_t once;
-	dispatch_once(&once, ^{ cache = [NSCache new]; });
-	return cache;
-}
-
-UIImage *BDDevicePhoto(NSString *address) {
-	if (!address.length) return nil;
-	UIImage *cached = [BDPhotoCache() objectForKey:address];
-	if (cached) return cached;
-	UIImage *image = [UIImage imageWithContentsOfFile:BDPhotoPath(address)];
-	if (image) [BDPhotoCache() setObject:image forKey:address];
-	return image;
-}
-
-BOOL BDSaveDevicePhoto(UIImage *image, NSString *address) {
-	if (!image || !address.length) return NO;
-	// Square-crop and shrink so cells stay cheap.
-	CGFloat side = MIN(image.size.width, image.size.height);
-	CGFloat target = MIN(side, 600);
-	UIGraphicsImageRendererFormat *format = [UIGraphicsImageRendererFormat defaultFormat];
-	format.scale = 1;
-	UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(target, target) format:format];
-	UIImage *square = [renderer imageWithActions:^(UIGraphicsImageRendererContext *ctx) {
-		CGFloat scale = target / side;
-		CGSize drawn = CGSizeMake(image.size.width * scale, image.size.height * scale);
-		[image drawInRect:CGRectMake((target - drawn.width) / 2, (target - drawn.height) / 2, drawn.width, drawn.height)];
-	}];
-	[NSFileManager.defaultManager createDirectoryAtPath:kBDPhotoDir withIntermediateDirectories:YES attributes:nil error:nil];
-	BOOL ok = [UIImageJPEGRepresentation(square, 0.85) writeToFile:BDPhotoPath(address) atomically:YES];
-	if (ok) [BDPhotoCache() setObject:square forKey:address];
-	return ok;
-}
-
-void BDRemoveDevicePhoto(NSString *address) {
-	if (!address.length) return;
-	[NSFileManager.defaultManager removeItemAtPath:BDPhotoPath(address) error:nil];
-	[BDPhotoCache() removeObjectForKey:address];
-}
-
 #pragma mark - Icon view
 
 @interface BDDeviceIconView ()
 @property (nonatomic, strong) CAGradientLayer *gradient;
 @property (nonatomic, strong) UIImageView *symbolView;
-@property (nonatomic, strong) UIImageView *photoView;
 @property (nonatomic, copy) NSString *symbolName;
 @end
 
@@ -159,9 +108,6 @@ void BDRemoveDevicePhoto(NSString *address) {
 		_symbolView.contentMode = UIViewContentModeCenter;
 		_symbolView.tintColor = UIColor.whiteColor;
 		[self addSubview:_symbolView];
-		_photoView = [UIImageView new];
-		_photoView.contentMode = UIViewContentModeScaleAspectFill;
-		[self addSubview:_photoView];
 	}
 	return self;
 }
@@ -171,7 +117,6 @@ void BDRemoveDevicePhoto(NSString *address) {
 	self.layer.cornerRadius = self.bounds.size.width / 2;
 	self.gradient.frame = self.bounds;
 	self.symbolView.frame = self.bounds;
-	self.photoView.frame = self.bounds;
 	[self updateSymbolSize];
 }
 
@@ -193,9 +138,6 @@ void BDRemoveDevicePhoto(NSString *address) {
 	self.gradient.colors = @[(id)top.CGColor, (id)bottom.CGColor];
 	self.symbolName = kind.symbol;
 	[self updateSymbolSize];
-	UIImage *photo = BDDevicePhoto(device.address);
-	self.photoView.image = photo;
-	self.photoView.hidden = photo == nil;
 }
 
 @end

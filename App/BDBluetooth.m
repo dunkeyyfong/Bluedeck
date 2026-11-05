@@ -190,12 +190,6 @@ NSString *const BDBluetoothPairingRequestNotification = @"BDBluetoothPairingRequ
 	[self scheduleChange];
 }
 
-- (BOOL)rename:(BluetoothDevice *)device to:(NSString *)name {
-	BOOL ok = [device respondsToSelector:@selector(setUserName:)] && [device setUserName:name];
-	[self scheduleChange];
-	return ok;
-}
-
 - (void)startScan {
 	[self.discovered removeAllObjects];
 	self.scanning = YES;

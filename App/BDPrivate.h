@@ -26,7 +26,6 @@
 - (void)connect;
 - (void)disconnect;
 - (void)unpair;
-- (BOOL)setUserName:(NSString *)name;
 - (void)acceptSSP:(long long)result;
 - (void)setPIN:(NSString *)pin;
 @end

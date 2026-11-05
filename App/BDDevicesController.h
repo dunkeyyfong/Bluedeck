@@ -4,6 +4,5 @@
 @interface BDDevicesController : UITableViewController
 @end
 
-// Shared confirm/rename helpers used by the list and the detail page.
-void BDPresentRename(UIViewController *host, id device);
+// Confirm sheet shared by the list and the detail page.
 void BDPresentForget(UIViewController *host, id device, void (^done)(void));

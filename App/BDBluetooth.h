@@ -35,7 +35,6 @@ typedef NS_OPTIONS(unsigned int, BDService) {
 - (void)connect:(BluetoothDevice *)device;
 - (void)disconnect:(BluetoothDevice *)device;
 - (void)forget:(BluetoothDevice *)device;
-- (BOOL)rename:(BluetoothDevice *)device to:(NSString *)name;
 
 - (void)startScan;
 - (void)stopScan;

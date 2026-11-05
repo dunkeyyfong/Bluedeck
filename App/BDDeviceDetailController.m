@@ -3,7 +3,6 @@
 #import "BDDeviceStyle.h"
 #import "BDDevicesController.h"
 #import <AVFoundation/AVFoundation.h>
-#import <PhotosUI/PhotosUI.h>
 
 @interface BDDetailRow : NSObject
 @property (nonatomic, copy) NSString *title;
@@ -25,7 +24,7 @@
 @implementation BDDetailSection
 @end
 
-@interface BDDeviceDetailController () <PHPickerViewControllerDelegate>
+@interface BDDeviceDetailController ()
 @property (nonatomic, copy) NSString *address;
 @property (nonatomic, strong) BluetoothDevice *device;
 @property (nonatomic, copy) NSArray<BDDetailSection *> *sections;
@@ -57,15 +56,6 @@
 	UIView *header = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 0, 190)];
 	self.iconView = [[BDDeviceIconView alloc] initWithFrame:CGRectZero];
 	self.iconView.translatesAutoresizingMaskIntoConstraints = NO;
-	self.iconView.userInteractionEnabled = YES;
-	[self.iconView addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(changePhoto)]];
-
-	UIImageView *badge = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"camera.circle.fill"]];
-	badge.translatesAutoresizingMaskIntoConstraints = NO;
-	badge.tintColor = UIColor.systemBlueColor;
-	badge.backgroundColor = UIColor.systemBackgroundColor;
-	badge.layer.cornerRadius = 14;
-	badge.clipsToBounds = YES;
 
 	self.nameLabel = [UILabel new];
 	self.nameLabel.font = [UIFont systemFontOfSize:24 weight:UIFontWeightBold];
@@ -78,7 +68,6 @@
 	self.kindLabel.translatesAutoresizingMaskIntoConstraints = NO;
 
 	[header addSubview:self.iconView];
-	[header addSubview:badge];
 	[header addSubview:self.nameLabel];
 	[header addSubview:self.kindLabel];
 	[NSLayoutConstraint activateConstraints:@[
@@ -86,10 +75,6 @@
 		[self.iconView.centerXAnchor constraintEqualToAnchor:header.centerXAnchor],
 		[self.iconView.widthAnchor constraintEqualToConstant:100],
 		[self.iconView.heightAnchor constraintEqualToConstant:100],
-		[badge.trailingAnchor constraintEqualToAnchor:self.iconView.trailingAnchor constant:2],
-		[badge.bottomAnchor constraintEqualToAnchor:self.iconView.bottomAnchor constant:2],
-		[badge.widthAnchor constraintEqualToConstant:28],
-		[badge.heightAnchor constraintEqualToConstant:28],
 		[self.nameLabel.topAnchor constraintEqualToAnchor:self.iconView.bottomAnchor constant:12],
 		[self.nameLabel.leadingAnchor constraintEqualToAnchor:header.leadingAnchor constant:20],
 		[self.nameLabel.trailingAnchor constraintEqualToAnchor:header.trailingAnchor constant:-20],
@@ -193,9 +178,7 @@
 		[sections addObject:audio];
 	}
 
-	BDDetailSection *manage = [self section:@"Quản lý"];
-	[self add:manage action:@"Đổi tên" tint:self.view.tintColor block:^{ BDPresentRename(weakSelf, weakSelf.device); }];
-	[self add:manage action:BDDevicePhoto(device.address) ? @"Đổi ảnh thiết bị" : @"Chọn ảnh cho thiết bị" tint:self.view.tintColor block:^{ [weakSelf changePhoto]; }];
+	BDDetailSection *manage = [self section:nil];
 	[self add:manage action:@"Quên thiết bị này" tint:UIColor.systemRedColor block:^{
 		BDPresentForget(weakSelf, weakSelf.device, ^{ [weakSelf.navigationController popViewControllerAnimated:YES]; });
 	}];
@@ -210,45 +193,6 @@
 		if ((device.aclUID && [port.UID isEqualToString:device.aclUID]) || (device.address && [port.UID hasPrefix:device.address])) return port;
 	}
 	return nil;
-}
-
-#pragma mark - Photo
-
-- (void)changePhoto {
-	UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"Ảnh thiết bị" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
-	[sheet addAction:[UIAlertAction actionWithTitle:@"Chọn từ thư viện ảnh" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-		PHPickerConfiguration *config = [PHPickerConfiguration new];
-		config.filter = [PHPickerFilter imagesFilter];
-		config.selectionLimit = 1;
-		PHPickerViewController *picker = [[PHPickerViewController alloc] initWithConfiguration:config];
-		picker.delegate = self;
-		[self presentViewController:picker animated:YES completion:nil];
-	}]];
-	if (BDDevicePhoto(self.address)) {
-		[sheet addAction:[UIAlertAction actionWithTitle:@"Dùng icon mặc định" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
-			BDRemoveDevicePhoto(self.address);
-			[self reload];
-		}]];
-	}
-	[sheet addAction:[UIAlertAction actionWithTitle:@"Huỷ" style:UIAlertActionStyleCancel handler:nil]];
-	sheet.popoverPresentationController.sourceView = self.iconView;
-	sheet.popoverPresentationController.sourceRect = self.iconView.bounds;
-	[self presentViewController:sheet animated:YES completion:nil];
-}
-
-- (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results {
-	[picker dismissViewControllerAnimated:YES completion:nil];
-	NSItemProvider *provider = results.firstObject.itemProvider;
-	if (![provider canLoadObjectOfClass:UIImage.class]) return;
-	NSString *address = self.address;
-	[provider loadObjectOfClass:UIImage.class completionHandler:^(id<NSItemProviderReading> object, NSError *error) {
-		if (![(id)object isKindOfClass:UIImage.class]) return;
-		BDSaveDevicePhoto((UIImage *)object, address);
-		dispatch_async(dispatch_get_main_queue(), ^{
-			[self reload];
-			[NSNotificationCenter.defaultCenter postNotificationName:BDBluetoothDidChangeNotification object:nil];
-		});
-	}];
 }
 
 #pragma mark - Table
