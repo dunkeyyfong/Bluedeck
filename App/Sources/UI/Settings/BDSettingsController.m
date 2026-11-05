@@ -1,6 +1,5 @@
 #import "BDSettingsController.h"
 #import "BDDiagController.h"
-#import "BDEntitlements.h"
 #import "BDHelperClient.h"
 
 NSString *BDAppVersion(void) {

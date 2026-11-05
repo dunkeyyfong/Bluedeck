@@ -1,7 +1,7 @@
 #import "BDScanController.h"
 #import "BDBluetooth.h"
 #import "BDDeviceStyle.h"
-#import "BDEntitlements.h"
+#import "BDHelperClient.h"
 
 // Row for a device Settings found while scanning (only address / name / class are known).
 @interface BDFoundCell : UITableViewCell

@@ -92,16 +92,3 @@ NSArray<NSString *> *BDEntitlementLikeStrings(NSString *path, NSString **error) 
 	}
 	return [found.allObjects sortedArrayUsingSelector:@selector(compare:)];
 }
-
-void BDOpenBluetoothSettings(void) {
-	NSURL *url = [NSURL URLWithString:@"prefs:root=Bluetooth"];
-	Class workspaceClass = NSClassFromString(@"LSApplicationWorkspace");
-	SEL shared = NSSelectorFromString(@"defaultWorkspace");
-	id workspace = [workspaceClass respondsToSelector:shared] ? ((id (*)(Class, SEL))[workspaceClass methodForSelector:shared])(workspaceClass, shared) : nil;
-	SEL open = NSSelectorFromString(@"openSensitiveURL:withOptions:");
-	if ([workspace respondsToSelector:open]) {
-		((BOOL (*)(id, SEL, NSURL *, NSDictionary *))[workspace methodForSelector:open])(workspace, open, url, nil);
-		return;
-	}
-	[UIApplication.sharedApplication openURL:[NSURL URLWithString:@"App-prefs:Bluetooth"] options:@{} completionHandler:nil];
-}

@@ -19,3 +19,7 @@
 @end
 
 NSString *BDHelperStatusText(BDHelperStatus status);
+
+// Opens Settings › Bluetooth (needs com.apple.springboard.opensensitiveurl) — the manual
+// fallback whenever the helper can't do something.
+void BDOpenBluetoothSettings(void);

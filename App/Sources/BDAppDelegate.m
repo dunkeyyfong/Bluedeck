@@ -2,7 +2,7 @@
 #import "BDAudioController.h"
 #import "BDBluetooth.h"
 #import "BDDevicesController.h"
-#import "BDEntitlements.h"
+#import "BDHelperClient.h"
 
 @implementation BDAppDelegate
 
