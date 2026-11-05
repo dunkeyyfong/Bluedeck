@@ -31,7 +31,7 @@
 static BluetoothManager *gManager;
 static BOOL gHasSeq;
 static uint8_t gLastSeq;
-static UIBackgroundTaskIdentifier gTask = UIBackgroundTaskInvalid;
+static UIBackgroundTaskIdentifier gTask; // set to UIBackgroundTaskInvalid in %ctor
 static NSInteger gTaskGeneration;
 static NSMutableDictionary<NSString *, BluetoothDevice *> *gFound;
 static BOOL gScanning;
@@ -158,7 +158,7 @@ static void BDHPerform(uint8_t seq, BDHelperOp op, NSString *address) {
 				});
 				break;
 			}
-			case BDHelperOpScanStart:
+			case BDHelperOpScanStart: {
 				// Bluedeck renews the scan every ~20 s; only a fresh scan starts from an empty list.
 				if (!gScanning) {
 					[gFound removeAllObjects];
@@ -175,11 +175,13 @@ static void BDHPerform(uint8_t seq, BDHelperOp op, NSString *address) {
 				});
 				BDHReply(seq, op, BDHelperStatusOK);
 				break;
-			case BDHelperOpScanStop:
+			}
+			case BDHelperOpScanStop: {
 				gScanning = NO;
 				[m setDeviceScanningEnabled:NO];
 				BDHReply(seq, op, BDHelperStatusOK);
 				break;
+			}
 			case BDHelperOpPair: {
 				BluetoothDevice *device = BDHAnyDevice(m, address);
 				if (!device) {
@@ -203,15 +205,17 @@ static void BDHPerform(uint8_t seq, BDHelperOp op, NSString *address) {
 				dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), dispatch_get_main_queue(), poll);
 				break;
 			}
-			case BDHelperOpPowerOn:
+			case BDHelperOpPowerOn: {
 				if ([m respondsToSelector:@selector(setEnabled:)]) [m setEnabled:YES];
 				[m setPowered:YES];
 				BDHReply(seq, op, BDHelperStatusOK);
 				break;
-			case BDHelperOpPowerOff:
+			}
+			case BDHelperOpPowerOff: {
 				[m setPowered:NO];
 				BDHReply(seq, op, BDHelperStatusOK);
 				break;
+			}
 		}
 	});
 }
@@ -226,6 +230,7 @@ static void BDHHandleRequest(void) {
 }
 
 %ctor {
+	gTask = UIBackgroundTaskInvalid;
 	gFound = [NSMutableDictionary dictionary];
 	// Bluedeck pings first and only posts its request after our pong, so whatever request is
 	// already stored belongs to an earlier run — mark it as handled.
